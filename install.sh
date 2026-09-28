@@ -4,7 +4,9 @@ set -Eeuo pipefail
 REPO_OWNER="${SERVER_SHELL_KIT_OWNER:-Kcxuao}"
 REPO_NAME="${SERVER_SHELL_KIT_REPO:-server-shell-kit}"
 REPO_REF="${SERVER_SHELL_KIT_REF:-main}"
-BASE_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_REF}"
+ARCHIVE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/refs/heads/${REPO_REF}.tar.gz"
+WORK_DIR=''
+REPO_DIR=''
 
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; CYAN='\033[36m'; BOLD='\033[1m'; RESET='\033[0m'
 
@@ -22,18 +24,34 @@ ensure_curl(){
   fi
 }
 
-run_remote(){
-  local script="$1" name="$2" tmp
-  tmp="$(mktemp /tmp/server-shell-kit.XXXXXX.sh)"
-  printf '\n%b正在下载：%s%b\n' "$CYAN" "$name" "$RESET"
-  if ! curl -fsSL "${BASE_URL}/scripts/${script}" -o "$tmp"; then
-    printf '%b下载失败：%s%b\n' "$RED" "${BASE_URL}/scripts/${script}" "$RESET"; rm -f "$tmp"; return 1
+cleanup(){ [[ -z "$WORK_DIR" ]] || rm -rf -- "$WORK_DIR"; }
+
+download_repo(){
+  if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$REPO_DIR/scripts/common.sh" && -f "$REPO_DIR/scripts/install-full.sh" ]]; then
+      return 0
+    fi
   fi
-  chmod +x "$tmp"
-  SERVER_SHELL_KIT_OWNER="$REPO_OWNER" SERVER_SHELL_KIT_REPO="$REPO_NAME" SERVER_SHELL_KIT_REF="$REPO_REF" bash "$tmp"
-  local rc=$?
-  rm -f "$tmp"
-  return $rc
+  WORK_DIR="$(mktemp -d)" || { echo '创建临时目录失败。' >&2; return 1; }
+  trap cleanup EXIT
+  printf '正在下载仓库：%s\n' "$ARCHIVE_URL"
+  if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 120 -o "$WORK_DIR/main.tar.gz" "$ARCHIVE_URL"; then
+    echo '仓库下载失败。' >&2; return 1
+  fi
+  if ! tar -xzf "$WORK_DIR/main.tar.gz" -C "$WORK_DIR"; then
+    echo '仓库解压失败。' >&2; return 1
+  fi
+  REPO_DIR="$WORK_DIR/$REPO_NAME-$REPO_REF"
+  if [[ ! -f "$REPO_DIR/scripts/common.sh" || ! -f "$REPO_DIR/scripts/install-full.sh" ]]; then
+    echo '归档缺少必要脚本。' >&2; return 1
+  fi
+}
+
+run_local(){
+  local script="$1" name="$2"
+  printf '\n%b正在执行：%s%b\n' "$CYAN" "$name" "$RESET"
+  bash "$REPO_DIR/scripts/$script"
 }
 
 show_menu(){
@@ -54,21 +72,22 @@ show_menu(){
 
 main(){
   ensure_curl
+  download_repo
   while true; do
     show_menu
     printf '请输入编号 [0-9]：'; read -r choice
     case "$choice" in
-      1) run_remote install-full.sh '完整环境'; pause_menu ;;
-      2) run_remote install-zsh.sh 'Zsh'; pause_menu ;;
-      3) run_remote install-starship.sh 'Starship'; pause_menu ;;
-      4) run_remote install-plugins.sh 'Zsh 插件'; pause_menu ;;
-      5) run_remote install-danger-guard.sh '高危命令保护'; pause_menu ;;
-      6) run_remote install-aliases.sh '常用 Alias'; pause_menu ;;
-      7) run_remote install-full.sh '全部配置更新'; pause_menu ;;
-      8) run_remote install-danger-guard.sh '高危命令保护更新'; pause_menu ;;
+      1) run_local install-full.sh '完整环境'; pause_menu ;;
+      2) run_local install-zsh.sh 'Zsh'; pause_menu ;;
+      3) run_local install-starship.sh 'Starship'; pause_menu ;;
+      4) run_local install-plugins.sh 'Zsh 插件'; pause_menu ;;
+      5) run_local install-danger-guard.sh '高危命令保护'; pause_menu ;;
+      6) run_local install-aliases.sh '常用 Alias'; pause_menu ;;
+      7) run_local install-full.sh '全部配置更新'; pause_menu ;;
+      8) run_local install-danger-guard.sh '高危命令保护更新'; pause_menu ;;
       9)
         printf '\n%b请输入 YES 确认卸载：%b' "$RED" "$RESET"; read -r confirm
-        [[ "$confirm" == 'YES' ]] && run_remote uninstall.sh '卸载' || echo '已取消。'
+        [[ "$confirm" == 'YES' ]] && run_local uninstall.sh '卸载' || echo '已取消。'
         pause_menu
         ;;
       0) exit 0 ;;

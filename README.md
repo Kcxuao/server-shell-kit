@@ -11,7 +11,7 @@
 - 常用 Git / Docker / Linux Alias
 - 交互式高危命令拦截
 - 菜单式安装、更新、卸载
-- 模块脚本全部独立，可单独更新
+- 模块脚本从同一份本地仓库归档执行，可单独更新
 
 ## 仓库结构
 
@@ -36,7 +36,7 @@ server-shell-kit/
 
 ## 使用
 
-默认仓库地址为 `Kcxuao/server-shell-kit`。把本仓库推送到 GitHub 后执行：
+执行以下命令启动安装菜单。`install.sh` 下载仓库归档，模块脚本和配置从解压后的本地目录读取：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/Kcxuao/server-shell-kit/main/install.sh)

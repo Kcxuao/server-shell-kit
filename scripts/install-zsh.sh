@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-COMMON_URL="https://raw.githubusercontent.com/${SERVER_SHELL_KIT_OWNER:-Kcxuao}/${SERVER_SHELL_KIT_REPO:-server-shell-kit}/${SERVER_SHELL_KIT_REF:-main}/scripts/common.sh"
-TMP="$(mktemp)"; curl -fsSL "$COMMON_URL" -o "$TMP"; source "$TMP"; rm -f "$TMP"
+source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 command -v apt-get >/dev/null 2>&1 || { echo '当前仅支持 Debian/Ubuntu。'; exit 1; }
 run_root apt-get update
 run_root apt-get install -y zsh git curl ca-certificates

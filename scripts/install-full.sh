@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-BASE="https://raw.githubusercontent.com/${SERVER_SHELL_KIT_OWNER:-Kcxuao}/${SERVER_SHELL_KIT_REPO:-server-shell-kit}/${SERVER_SHELL_KIT_REF:-main}/scripts"
-run(){ local s="$1" t; t="$(mktemp)"; curl -fsSL "$BASE/$s" -o "$t"; SERVER_SHELL_KIT_OWNER="${SERVER_SHELL_KIT_OWNER:-Kcxuao}" SERVER_SHELL_KIT_REPO="${SERVER_SHELL_KIT_REPO:-server-shell-kit}" SERVER_SHELL_KIT_REF="${SERVER_SHELL_KIT_REF:-main}" bash "$t"; rm -f "$t"; }
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+run(){ bash "$SCRIPT_DIR/$1"; }
 run install-zsh.sh
 run install-plugins.sh
 run install-starship.sh
