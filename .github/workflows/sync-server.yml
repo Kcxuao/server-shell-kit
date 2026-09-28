@@ -30,7 +30,7 @@ jobs:
           chmod 600 "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
-          # The SSH key is restricted to /opt/1panel/www/sites/shell.kcxuao.art/index.
+          # The SSH key is restricted to /opt/1panel/www/sites/build.kcxuao.art/index.
           rsync -rltO --delete --exclude='.git/' --exclude='.github/' \
             -e "ssh -i $HOME/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
             ./ ssk-deploy@kcxuao.art:.

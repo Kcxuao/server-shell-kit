@@ -60,7 +60,7 @@ server-shell-kit/
 执行以下命令启动安装菜单。`install.sh` 从项目站点下载模块脚本和配置文件到临时目录后执行：
 
 ```bash
-bash <(curl -fsSL https://shell.kcxuao.art/install.sh)
+bash <(curl -fsSL https://build.kcxuao.art/install.sh)
 ```
 
 如果使用镜像站点，可覆盖下载基础地址：

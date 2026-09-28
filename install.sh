@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-BASE_URL="${SERVER_SHELL_KIT_BASE_URL:-https://shell.kcxuao.art}"
+BASE_URL="${SERVER_SHELL_KIT_BASE_URL:-https://build.kcxuao.art}"
 BASE_URL="${BASE_URL%/}"
 WORK_DIR=''
 REPO_DIR=''
