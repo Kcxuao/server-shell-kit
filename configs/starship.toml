@@ -1,0 +1,46 @@
+format = "$hostname$directory$git_branch$git_status$java$python$nodejs$rust$cmd_duration$line_break$character"
+add_newline = true
+
+[hostname]
+ssh_only = true
+format = "[$hostname]($style) "
+style = "bold green"
+
+[directory]
+style = "bold cyan"
+truncation_length = 4
+truncate_to_repo = false
+read_only = " [RO]"
+
+[git_branch]
+symbol = "git:"
+style = "bold purple"
+format = "[$symbol$branch]($style) "
+
+[git_status]
+style = "bold yellow"
+format = "[$all_status$ahead_behind]($style) "
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+
+[cmd_duration]
+min_time = 2000
+format = "[took $duration](yellow) "
+
+[java]
+symbol = "java:"
+format = "[$symbol($version )](red)"
+
+[python]
+symbol = "py:"
+format = "[$symbol($version )](yellow)"
+
+[nodejs]
+symbol = "node:"
+format = "[$symbol($version )](green)"
+
+[rust]
+symbol = "rust:"
+format = "[$symbol($version )](red)"
