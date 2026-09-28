@@ -2,6 +2,11 @@
 [[ -n "${DCG_LOADED:-}" ]] && return
 typeset -g DCG_LOADED=1
 typeset -g DCG_ENABLED=1
+typeset -g DCG_RM_BACKUP=1
+typeset -g DCG_RM_BACKUP_CONFIG="$HOME/.config/zsh/server-shell-kit/rm-backup.conf"
+if [[ -f "$DCG_RM_BACKUP_CONFIG" ]] && grep -Fxq 'enabled=0' "$DCG_RM_BACKUP_CONFIG"; then
+    DCG_RM_BACKUP=0
+fi
 
 typeset -g DCG_RED=$'\033[31m'
 typeset -g DCG_YELLOW=$'\033[33m'
@@ -54,9 +59,9 @@ _dcg_confirm_level1() {
     printf '%b%b⚠️  检测到高危命令%b\n' "$DCG_YELLOW" "$DCG_BOLD" "$DCG_RESET"
     printf '%b%b============================================================%b\n' "$DCG_YELLOW" "$DCG_BOLD" "$DCG_RESET"
     printf '\n命令：%s\n风险：%s\n\n' "$cmd" "$reason"
-    printf '%b请输入 YES 确认执行：%b' "$DCG_YELLOW" "$DCG_RESET"
+    printf '%b请输入 yes 确认执行：%b' "$DCG_YELLOW" "$DCG_RESET"
     IFS= read -r answer </dev/tty
-    [[ "$answer" == YES ]] && { printf '\n%b✓ 已确认，继续执行%b\n\n' "$DCG_GREEN" "$DCG_RESET"; return 0; }
+    [[ "$answer" == [Yy][Ee][Ss] ]] && { printf '\n%b✓ 已确认，继续执行%b\n\n' "$DCG_GREEN" "$DCG_RESET"; return 0; }
     printf '\n%b✗ 已取消执行%b\n\n' "$DCG_RED" "$DCG_RESET"; return 1
 }
 
@@ -73,6 +78,70 @@ _dcg_confirm_level2() {
     printf '\n%b✗ 命令不匹配，已取消执行%b\n\n' "$DCG_RED" "$DCG_RESET"; return 1
 }
 
+_dcg_is_force_recursive_rm() {
+    [[ "$1" =~ '(^|[;&|[:space:]])(sudo[[:space:]]+)?(command[[:space:]]+)?rm[[:space:]].*(-rf|-fr|-[rR][[:space:]]+-f|-f[[:space:]]+-[rR])' ]]
+}
+
+_dcg_backup_rm() {
+    local cmd="$1" word target resolved backup_root backup_dir index=0 recursive=0 force=0 options=1
+    local -a words paths
+    words=( ${(z)cmd} )
+    (( ${#words} >= 3 )) || return 1
+    if [[ "${words[1]}" == sudo ]]; then shift words; fi
+    if [[ "${words[1]}" == command ]]; then shift words; fi
+    [[ "${words[1]}" == rm ]] || return 1
+    shift words
+    for word in "${words[@]}"; do
+        # Dynamic expansion and shell operators cannot be mapped reliably to deleted files.
+        [[ "$word" == *'$'* || "$word" == *'`'* || "$word" == *'*'* || "$word" == *'?'* ||
+           "$word" == *'['* || "$word" == *']'* || "$word" == *'{'* || "$word" == *'}'* ||
+           "$word" == *';'* || "$word" == *'|'* || "$word" == *'&'* || "$word" == *'>'* ||
+           "$word" == *'<'* || "$word" == *$'\n'* ]] && return 1
+        word="${(Q)word}"
+        if (( options )) && [[ "$word" == -- ]]; then
+            options=0
+        elif (( options )) && [[ "$word" == -* ]]; then
+            case "$word" in
+                --recursive) recursive=1 ;;
+                --force) force=1 ;;
+                -*)
+                    [[ "$word" =~ '^-[rfR]+$' ]] || return 1
+                    [[ "$word" == *r* || "$word" == *R* ]] && recursive=1
+                    [[ "$word" == *f* ]] && force=1 ;;
+                *) return 1 ;;
+            esac
+        else
+            [[ -n "$word" && "$word" != '~'* ]] || return 1
+            paths+=( "$word" )
+        fi
+    done
+    (( recursive && force && ${#paths} )) || return 1
+    backup_root="$HOME/.local/share/server-shell-kit/rm-backups"
+    mkdir -p -m 700 -- "$backup_root" || return 1
+    backup_root="$(realpath -m -- "$backup_root")" || return 1
+    for target in "${paths[@]}"; do
+        resolved="$(realpath -m -- "$target")" || return 1
+        [[ "$resolved" != / && "$backup_root" != "$resolved" && "$backup_root" != "$resolved"/* ]] || return 1
+    done
+    backup_dir="$(mktemp -d "$backup_root/$(date +%Y%m%d-%H%M%S)-XXXXXXXX")" || return 1
+    chmod 700 -- "$backup_dir" || return 1
+    for target in "${paths[@]}"; do
+        if [[ -e "$target" || -L "$target" ]]; then
+            (( index += 1 ))
+            if ! cp -a -- "$target" "$backup_dir/$index"; then
+                rm -rf -- "$backup_dir"
+                return 1
+            fi
+            if ! printf '%s\t%s\n' "$index" "$(realpath -m -s -- "$target")" >> "$backup_dir/paths.txt"; then
+                rm -rf -- "$backup_dir"
+                return 1
+            fi
+        fi
+    done
+    printf '已备份到：%s\n' "$backup_dir"
+    printf '恢复时查看 paths.txt，将编号文件复制回原路径。\n'
+}
+
 _dcg_guard() {
     local cmd="$1"
     [[ "$DCG_ENABLED" == 1 ]] || return 0
@@ -81,9 +150,16 @@ _dcg_guard() {
     _dcg_detect "$cmd"
     case "$DCG_LEVEL" in
         0) return 0 ;;
-        1) _dcg_confirm_level1 "$cmd" "$DCG_REASON" ;;
-        2) _dcg_confirm_level2 "$cmd" "$DCG_REASON" ;;
+        1) _dcg_confirm_level1 "$cmd" "$DCG_REASON" || return 1 ;;
+        2) _dcg_confirm_level2 "$cmd" "$DCG_REASON" || return 1 ;;
     esac
+    if [[ "$DCG_RM_BACKUP" == 1 ]] && _dcg_is_force_recursive_rm "$cmd"; then
+        if ! _dcg_backup_rm "$cmd"; then
+            printf '%b✗ 无法安全备份删除目标，命令已取消。请使用明确的路径。%b\n' "$DCG_RED" "$DCG_RESET"
+            return 1
+        fi
+    fi
+    return 0
 }
 
 _dcg_accept_line() {
@@ -100,6 +176,16 @@ fi
 dcg-enable(){ DCG_ENABLED=1; echo 'Dangerous Command Guard: enabled'; }
 dcg-disable(){ DCG_ENABLED=0; echo 'Dangerous Command Guard: disabled'; }
 dcg-status(){ [[ "$DCG_ENABLED" == 1 ]] && echo 'Dangerous Command Guard: enabled' || echo 'Dangerous Command Guard: disabled'; }
+_dcg_set_rm_backup() {
+    local value="$1" config_dir="${DCG_RM_BACKUP_CONFIG:h}"
+    mkdir -p -- "$config_dir" || return 1
+    printf 'enabled=%s\n' "$value" > "$DCG_RM_BACKUP_CONFIG" || return 1
+    chmod 600 -- "$DCG_RM_BACKUP_CONFIG" || return 1
+    DCG_RM_BACKUP="$value"
+}
+dcg-backup-enable(){ _dcg_set_rm_backup 1 && echo 'rm -rf 自动备份：已开启'; }
+dcg-backup-disable(){ _dcg_set_rm_backup 0 && echo 'rm -rf 自动备份：已关闭'; }
+dcg-backup-status(){ [[ "$DCG_RM_BACKUP" == 1 ]] && echo 'rm -rf 自动备份：已开启' || echo 'rm -rf 自动备份：已关闭'; }
 dcg-test(){
     local cmd="$*"
     [[ -z "$cmd" ]] && { echo "用法: dcg-test 'command'"; return 1; }
