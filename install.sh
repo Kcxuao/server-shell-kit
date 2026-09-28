@@ -197,7 +197,7 @@ component_menu(){
         IFS= read -rsn1 -t 0.2 rest || continue
         case "$rest" in
           A) if (( component_cursor >= 5 )); then component_cursor=4
-             elif (( component_cursor > 0 )); then ((component_cursor-=1)); fi ;;
+             elif (( component_cursor > 0 )); then component_cursor=$((component_cursor - 1)); fi ;;
           B) (( component_cursor < 5 )) && ((component_cursor+=1)) || true ;;
           C) (( component_cursor == 5 )) && component_cursor=6 || true ;;
           D) (( component_cursor == 6 )) && component_cursor=5 || true ;;
@@ -303,7 +303,7 @@ language_menu(){
         IFS= read -rsn1 -t 0.2 rest || continue
         case "$rest" in
           A) if (( language_cursor >= 4 )); then language_cursor=3
-             elif (( language_cursor > 0 )); then ((language_cursor-=1)); fi ;;
+             elif (( language_cursor > 0 )); then language_cursor=$((language_cursor - 1)); fi ;;
           B) (( language_cursor < 4 )) && ((language_cursor+=1)) || true ;;
           C) (( language_cursor == 4 )) && language_cursor=5 || true ;;
           D) (( language_cursor == 5 )) && language_cursor=4 || true ;;
