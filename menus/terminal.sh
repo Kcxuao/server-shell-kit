@@ -4,9 +4,9 @@ guard_menu(){
   while true; do
     header
     printf '\n  %b高危命令保护设置%b\n' "$BOLD" "$RESET"
-    printf '  1  查看当前 Danger Guard 状态\n'
-    printf '  2  启用 Danger Guard\n'
-    printf '  3  禁用 Danger Guard\n'
+    printf '  1  查看当前 Impact Guard 状态\n'
+    printf '  2  启用 Impact Guard\n'
+    printf '  3  禁用 Impact Guard\n'
     printf '  4  查看 rm 递归删除备份状态\n'
     printf '  5  启用 rm 递归删除备份\n'
     printf '  6  禁用 rm 递归删除备份\n'

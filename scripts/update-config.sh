@@ -14,7 +14,16 @@ update_if_installed(){
 
 update_if_installed "$REPO_DIR/configs/starship.toml" "$TARGET_HOME/.config/starship.toml" 'Starship 配置'
 update_if_installed "$REPO_DIR/configs/aliases.zsh" "$TARGET_HOME/.config/zsh/server-shell-kit/aliases.zsh" '常用 Alias'
-update_if_installed "$REPO_DIR/plugins/dangerous-command-guard.plugin.zsh" "$TARGET_HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh" '高危命令保护'
+guard_dir="$TARGET_HOME/.config/zsh/plugins/dangerous-command-guard"
+if [[ -f "$guard_dir/impact-guard.plugin.zsh" ]]; then
+  install_config "$REPO_DIR/plugins/dangerous-command-guard.plugin.zsh" "$guard_dir/dangerous-command-guard.plugin.zsh"
+  install_config "$REPO_DIR/plugins/impact-guard.plugin.zsh" "$guard_dir/impact-guard.plugin.zsh"
+  install_config "$REPO_DIR/plugins/impact-guard-analysis.zsh" "$guard_dir/impact-guard-analysis.zsh"
+  printf '已更新：Impact Guard\n'
+  updated=$((updated + 1))
+else
+  update_if_installed "$REPO_DIR/plugins/dangerous-command-guard.plugin.zsh" "$guard_dir/dangerous-command-guard.plugin.zsh" '高危命令保护'
+fi
 if (( updated == 0 )); then
   echo '未找到已安装的工具配置。请先安装完整环境或在自选组件中安装。'
 else

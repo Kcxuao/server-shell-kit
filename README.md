@@ -73,7 +73,9 @@ server-shell-kit/
 │   ├── aliases.zsh
 │   └── starship.toml
 └── plugins/
-    └── dangerous-command-guard.plugin.zsh
+    ├── dangerous-command-guard.plugin.zsh
+    ├── impact-guard.plugin.zsh
+    └── impact-guard-analysis.zsh
 ```
 
 ## 使用
@@ -212,24 +214,15 @@ bash scripts/diff.sh --source /path/to/backup/snapshot.json
 
 [清华 Ubuntu 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/)、[清华 Debian 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)、[中科大镜像说明](https://mirrors.ustc.edu.cn/help/debian.html)。
 
-## 高危命令保护
+## Impact Guard
 
-一级风险需要输入 `yes`（大小写均可），二级风险需要重新输入完整命令。
+Impact Guard 只处理交互式 Zsh 的回车入口。目标用户需要预先安装并能调用外部 `dcg` 和 `jq`；安装器会在切换启动入口前检查这两个命令。外部 `dcg` 是风险判定来源，入口显式启用 `core.filesystem`、`core.git`、`containers.docker`、`containers.compose`、`system.disk`、`system.permissions`、`system.services` 规则包。放行的命令直接提交；拦截的命令会显示中文规则说明和只读目标分析，再按严重级别要求输入 `yes` 或重新输入完整命令。常见 Docker Volume、systemd、文件删除和 Git 规则提供中文名称与原因；其他规则会保留 dcg 原因原文，避免误译。输出会区分已确认信息与 `UNKNOWN`；Docker 或 systemd 查询不可用时不会将查询失败当成无影响。没有专用分析器的其他已启用规则也会显示 `UNKNOWN`。
 
-交互式 Zsh 中执行 `rm -rf` 时，自动备份默认开启：确认后会先将现存目标复制到 `~/.local/share/server-shell-kit/rm-backups/`，并写入原路径清单 `paths.txt`；备份成功后才执行删除。备份失败时取消命令。为确保备份范围准确，开启备份时仅支持独立的 `rm -rf` 命令和明确的字面路径；包含通配符、变量展开或复合命令的删除会被取消。备份目录需有足够空间，删除包含该备份目录的路径也会被取消。可在“终端环境 → 高危命令保护设置”中查看或切换 Danger Guard 和 rm 递归删除备份状态；关闭备份后仍保留高危命令确认。也可在 Zsh 中使用 `dcg-backup-enable`、`dcg-backup-disable` 和 `dcg-backup-status`。
+旧版危险命令检测函数保留为兼容函数库，但不再作为新入口的风险判定来源。`dcg-status` 等项目 Zsh 函数与外部 `dcg` 可执行文件是不同接口。`danger-guard.conf` 和 `rm-backup.conf` 继续沿用。
 
-测试：
+只有外部 `dcg` 拦截、用户确认通过后，且 `rm-backup.conf` 已开启时，明确字面目标的 `rm -rf` 才会调用原自动备份函数。备份失败会取消命令；外部 `dcg` 放行的 `rm -rf` 不会触发旧确认或备份。备份是 `cp -a` 文件复制，不代表运行中数据库的一致性快照。可在“终端环境 → 高危命令保护设置”查看或切换 Impact Guard 与 rm 递归删除备份状态；Zsh 中的 `dcg-backup-enable`、`dcg-backup-disable` 和 `dcg-backup-status` 仍可用。
 
-```bash
-dcg-status
-dcg-test 'rm -rf /tmp/test'
-dcg-test 'rm -rf /opt/test'
-dcg-test 'docker volume prune'
-dcg-test 'iptables -F'
-```
-
-> 该功能用于防止交互式 Zsh 中的手滑误操作，不是系统安全边界。脚本、cron、systemd、程序 exec 等不会经过 ZLE 拦截。
-
+该入口不会修改外部 `dcg` 的全局配置、Hook 或 allowlist。脚本、cron、systemd 和其他程序直接执行的命令不会经过 ZLE 回车入口。
 
 ## 更新与卸载
 

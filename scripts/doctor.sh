@@ -61,15 +61,26 @@ else
   row aliases ok 常用Alias '配置文件和启动行齐全' - -
 fi
 
-guard_file="$TARGET_HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh"
-if [[ ! -f "$guard_file" ]]; then
+guard_dir="$TARGET_HOME/.config/zsh/plugins/dangerous-command-guard"
+guard_library="$guard_dir/dangerous-command-guard.plugin.zsh"
+guard_entry="$guard_dir/impact-guard.plugin.zsh"
+guard_analysis="$guard_dir/impact-guard-analysis.zsh"
+old_guard_start='[[ -f "$HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh" ]] && source "$HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh"'
+new_guard_start='[[ -f "$HOME/.config/zsh/plugins/dangerous-command-guard/impact-guard.plugin.zsh" ]] && source "$HOME/.config/zsh/plugins/dangerous-command-guard/impact-guard.plugin.zsh"'
+if [[ ! -f "$guard_library" && ! -f "$guard_entry" ]]; then
   row guard missing 高危命令保护 '尚未配置' component 3
-elif ! has_line '[[ -f "$HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh" ]] && source "$HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh"' 'dangerous-command-guard.plugin.zsh'; then
-  row guard issue 高危命令保护 '插件存在，但 Zsh 启动行缺失' component 3
-elif ! zsh_check 'typeset -f dcg-status >/dev/null'; then
-  row guard issue 高危命令保护 '配置齐全，但新 Zsh 会话未加载保护功能' component 3
+elif has_line "$old_guard_start" && has_line "$new_guard_start"; then
+  row guard issue 高危命令保护 '标准新旧启动行同时存在' component 3
+elif [[ ! -f "$guard_entry" || ! -f "$guard_analysis" ]]; then
+  row guard issue 高危命令保护 'Impact Guard 入口或分析模块缺失' component 3
+elif ! has_line "$new_guard_start"; then
+  row guard issue 高危命令保护 'Impact Guard 已安装，但 Zsh 启动行缺失或仍指向旧入口' component 3
+elif ! zsh_check 'command -v dcg >/dev/null && command -v jq >/dev/null'; then
+  row guard issue 高危命令保护 '目标用户缺少外部 dcg 或 jq' component 3
+elif ! zsh_check 'typeset -f _impact_guard_accept_line >/dev/null && typeset -f dcg-status >/dev/null'; then
+  row guard issue 高危命令保护 '配置齐全，但新 Zsh 会话未加载 Impact Guard' component 3
 else
-  row guard ok 高危命令保护 '插件文件和启动行齐全' - -
+  row guard ok 高危命令保护 'Impact Guard 文件、依赖和启动行齐全' - -
 fi
 
 check_language(){

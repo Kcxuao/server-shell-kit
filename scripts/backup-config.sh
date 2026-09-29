@@ -7,6 +7,8 @@ user_files=(
   .config/starship.toml
   .config/zsh/server-shell-kit/aliases.zsh
   .config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh
+  .config/zsh/plugins/dangerous-command-guard/impact-guard.plugin.zsh
+  .config/zsh/plugins/dangerous-command-guard/impact-guard-analysis.zsh
   .ssh/authorized_keys
 )
 system_files=(/etc/os-release /etc/timezone /etc/default/locale /etc/apt/sources.list)

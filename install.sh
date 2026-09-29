@@ -89,6 +89,7 @@ download_repo(){
     menus/doctor.sh menus/system-tools.sh
     configs/starship.toml configs/aliases.zsh
     plugins/dangerous-command-guard.plugin.zsh
+    plugins/impact-guard.plugin.zsh plugins/impact-guard-analysis.zsh
   )
   printf '正在从 %s 下载安装文件...\n' "$BASE_URL"
   for file in "${files[@]}"; do
@@ -107,7 +108,7 @@ run_local(){
   printf '\n%b▶ 正在执行：%s%b\n' "$CYAN" "$name" "$RESET"
   if bash "$REPO_DIR/scripts/$script"; then
     printf '%b✓ %s 完成%b\n' "$GREEN" "$name" "$RESET"
-    printf '重新打开 Zsh 后查看效果；可用 dcg-status 检查命令保护。\n'
+    printf '重新打开 Zsh 后查看效果；可在终端环境菜单查看 Impact Guard 状态。\n'
   else
     printf '%b✗ %s 失败，请检查上方错误信息。%b\n' "$RED" "$name" "$RESET"
   fi

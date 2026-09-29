@@ -59,6 +59,13 @@ _dcg_detect() {
 _dcg_confirm_level1() {
     local cmd="$1" reason="$2" answer
     zle -I 2>/dev/null
+    if [[ "${IMPACT_GUARD_CONFIRM_BRIEF:-0}" == 1 ]]; then
+        printf '\n%b输入 yes 执行，其他输入取消 › %b' "$DCG_YELLOW" "$DCG_RESET"
+        IFS= read -r answer </dev/tty
+        [[ "$answer" == [Yy][Ee][Ss] ]] && return 0
+        printf '\n%b已取消执行。%b\n' "$DCG_RED" "$DCG_RESET"
+        return 1
+    fi
     printf '\n%b%b============================================================%b\n' "$DCG_YELLOW" "$DCG_BOLD" "$DCG_RESET"
     printf '%b%b⚠️  检测到高危命令%b\n' "$DCG_YELLOW" "$DCG_BOLD" "$DCG_RESET"
     printf '%b%b============================================================%b\n' "$DCG_YELLOW" "$DCG_BOLD" "$DCG_RESET"
@@ -72,6 +79,13 @@ _dcg_confirm_level1() {
 _dcg_confirm_level2() {
     local cmd="$1" reason="$2" answer
     zle -I 2>/dev/null
+    if [[ "${IMPACT_GUARD_CONFIRM_BRIEF:-0}" == 1 ]]; then
+        printf '\n%b重新输入完整命令确认 › %b' "$DCG_RED" "$DCG_RESET"
+        IFS= read -r answer </dev/tty
+        [[ "$answer" == "$cmd" ]] && return 0
+        printf '\n%b命令不匹配，已取消执行。%b\n' "$DCG_RED" "$DCG_RESET"
+        return 1
+    fi
     printf '\n%b%b============================================================%b\n' "$DCG_RED" "$DCG_BOLD" "$DCG_RESET"
     printf '%b%b🚨 检测到极高危命令%b\n' "$DCG_RED" "$DCG_BOLD" "$DCG_RESET"
     printf '%b%b============================================================%b\n' "$DCG_RED" "$DCG_BOLD" "$DCG_RESET"
@@ -171,7 +185,7 @@ _dcg_accept_line() {
     if _dcg_guard "$cmd"; then zle .accept-line; else zle reset-prompt; fi
 }
 
-if [[ -o interactive ]]; then
+if [[ -o interactive && "${DCG_LIBRARY_MODE:-0}" != 1 ]]; then
     zle -N _dcg_accept_line
     bindkey '^M' _dcg_accept_line
     bindkey '^J' _dcg_accept_line
