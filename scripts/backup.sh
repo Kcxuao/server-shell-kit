@@ -59,6 +59,8 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 created_at="$(date -u +%FT%TZ)"
+if (( EUID == 0 )); then source_user="${SUDO_USER:-root}"
+else source_user="$(id -un)"; fi
 version="$(git -C "$repo_dir" rev-parse --short HEAD 2>/dev/null || true)"
 [[ -n "$version" ]] || version=unversioned
 . /etc/os-release
@@ -141,16 +143,31 @@ if [[ "$mode" == data || "$mode" == full ]]; then
       --slurpfile details "$bundle/docker/status.json" \
       '$current | .docker.details = $details[0]')"
   fi
+  if [[ -f "$bundle/docker/inventory.json" ]]; then
+    modules="$(jq -nc --argjson current "$modules" \
+      --slurpfile inventory "$bundle/docker/inventory.json" \
+      '$current | .docker.inventory = $inventory[0]')"
+  fi
   if (( ${#paths[@]} > 0 )); then
     if bash "$script_dir/backup-files.sh" "$bundle" "${paths[@]}"; then
       set_module files SUCCESS '按读取时状态归档；运行中的文件未冻结'
     else set_module files FAILED '至少一个自定义目录备份失败'; fi
+    if [[ -f "$bundle/files/paths.json" ]]; then
+      modules="$(jq -nc --argjson current "$modules" \
+        --slurpfile details "$bundle/files/paths.json" \
+        '$current | .files.details = $details[0]')"
+    fi
   else set_module files SKIPPED '未指定自定义目录'; fi
   if (( ${#postgres_databases[@]} > 0 )); then
     if bash "$script_dir/backup-postgresql.sh" "$bundle" "$postgres_source" \
       "$postgres_user" "${postgres_databases[@]}"; then
       set_module postgresql SUCCESS ''
     else set_module postgresql FAILED 'PostgreSQL 导出失败'; fi
+    if [[ -f "$bundle/databases/postgresql/index.json" ]]; then
+      modules="$(jq -nc --argjson current "$modules" \
+        --slurpfile details "$bundle/databases/postgresql/index.json" \
+        '$current | .postgresql.details = $details[0]')"
+    fi
   elif [[ -f "$bundle/snapshot.json" ]] &&
        jq -e '[.databases.postgresql.systemd.status,.databases.postgresql.docker.status] |
          any(. == "running" or . == "installed")' "$bundle/snapshot.json" >/dev/null; then
@@ -161,6 +178,11 @@ if [[ "$mode" == data || "$mode" == full ]]; then
       "$mysql_user" "${mysql_databases[@]}"; then
       set_module mysql SUCCESS ''
     else set_module mysql FAILED 'MySQL/MariaDB 导出失败'; fi
+    if [[ -f "$bundle/databases/mysql/index.json" ]]; then
+      modules="$(jq -nc --argjson current "$modules" \
+        --slurpfile details "$bundle/databases/mysql/index.json" \
+        '$current | .mysql.details = $details[0]')"
+    fi
   elif [[ -f "$bundle/snapshot.json" ]] &&
        jq -e '[.databases.mysql.systemd.status,.databases.mysql.docker.status,
          .databases.mariadb.systemd.status,.databases.mariadb.docker.status] |
@@ -187,11 +209,11 @@ done < <(find "$bundle" -type f ! -name manifest.json -print0)
 jq -n --argjson schema_version 1 --arg created_at "$created_at" \
   --arg hostname "$(hostname)" --arg os "${PRETTY_NAME:-unknown}" \
   --arg server_shell_kit_version "$version" --arg type "$mode" \
-  --arg secret_policy "$secret_policy" \
+  --arg secret_policy "$secret_policy" --arg source_user "$source_user" \
   --argjson modules "$modules" --argjson files "$files" \
   '{schema_version:$schema_version,created_at:$created_at,hostname:$hostname,os:$os,
     server_shell_kit_version:$server_shell_kit_version,type:$type,
-    secret_policy:$secret_policy,modules:$modules,files:$files}' \
+    secret_policy:$secret_policy,source_user:$source_user,modules:$modules,files:$files}' \
   > "$bundle/manifest.json"
 if [[ "$secret_policy" == encrypt ]]; then
   encrypted="$bundle.tar.gz.gpg"

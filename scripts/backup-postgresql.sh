@@ -68,8 +68,8 @@ for database in "$@"; do
     '{name:$name,status:$status,file:$file}')"
   results="$(jq -nc --argjson results "$results" --argjson result "$result" '$results + [$result]')"
 done
-jq -nc --arg status "$globals_status" --argjson file "$globals_file_json" \
+jq -nc --arg source "$source_type" --arg status "$globals_status" --argjson file "$globals_file_json" \
   --argjson databases "$results" \
-  '{globals:{status:$status,file:$file},databases:$databases}' \
+  '{source:$source,globals:{status:$status,file:$file},databases:$databases}' \
   > "$bundle/databases/postgresql/index.json"
 (( failed == 0 ))
