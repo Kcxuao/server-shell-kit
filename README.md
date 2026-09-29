@@ -51,6 +51,8 @@ server-shell-kit/
 │   ├── install-language-manager.sh
 │   ├── configure-programming-mirror.py
 │   ├── doctor.sh
+│   ├── discover.sh
+│   ├── snapshot.sh
 │   ├── setup-admin-user.sh
 │   ├── setup-ssh-key.sh
 │   ├── setup-firewall.sh
@@ -111,6 +113,12 @@ Java 使用 SDKMAN 安装最新稳定 JDK 与 Maven；Python 使用 uv 安装托
 主菜单选择“环境体检”可查看目标用户的终端组件、四种编程环境，以及 Docker、SSH、UFW 和 SSH 公钥状态。进入页面后逐项显示检测进度和结果，无需等待所有项目完成才看到内容。结果区分正常、未安装、异常与无法判断；未安装的可选项不算故障。编程环境会检查默认工具链及新 Zsh 会话中的命令可用性；缺少服务管理器或读取权限时显示“无法判断”。体检只读，不自动修复。
 
 异常项后会显示处理编号。输入编号可进入对应配置菜单；终端组件和编程环境会预勾选该项，服务器服务会在初始化菜单提示相关选项。返回体检页后会重新检查状态。也可单独运行 `bash scripts/doctor.sh` 获取制表符分隔的诊断结果。
+
+## 环境发现与状态快照
+
+在本地检出的仓库运行 `bash scripts/discover.sh`，可向标准输出获取 `schema_version: 1` 的 JSON 状态报告。运行 `bash scripts/snapshot.sh` 会将同一报告保存到 `~/.local/share/server-shell-kit/snapshots/`，文件权限为 `0600`；可用绝对路径环境变量 `SERVER_SHELL_KIT_SNAPSHOT_DIR` 指定其他目录。两者都无需交互，也不会修改系统配置。
+
+报告包含系统、普通用户、网络、systemd 服务、编程工具和 Docker 元数据。数据库部分仅根据 systemd 单元和 Docker 镜像名称判断 PostgreSQL、MySQL、MariaDB、Redis 是否存在或运行，不连接数据库。缺少命令或读取权限时相应字段标记为 `unavailable`。报告不会读取密码、SSH 私钥、环境变量或 Docker 容器环境配置。
 
 ## Docker 安装与镜像加速
 

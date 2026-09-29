@@ -106,6 +106,7 @@ download_repo(){
     scripts/configure-danger-guard.sh
     scripts/doctor.sh
     scripts/configure-docker-mirrors.sh
+    scripts/discover.sh scripts/snapshot.sh
     menus/terminal.sh menus/programming.sh menus/docker.sh
     menus/doctor.sh menus/system-tools.sh
     configs/starship.toml configs/aliases.zsh
