@@ -2,6 +2,10 @@
 [[ -n "${DCG_LOADED:-}" ]] && return
 typeset -g DCG_LOADED=1
 typeset -g DCG_ENABLED=1
+typeset -g DCG_CONFIG="$HOME/.config/zsh/server-shell-kit/danger-guard.conf"
+if [[ -f "$DCG_CONFIG" ]] && grep -Fxq 'enabled=0' "$DCG_CONFIG"; then
+    DCG_ENABLED=0
+fi
 typeset -g DCG_RM_BACKUP=1
 typeset -g DCG_RM_BACKUP_CONFIG="$HOME/.config/zsh/server-shell-kit/rm-backup.conf"
 if [[ -f "$DCG_RM_BACKUP_CONFIG" ]] && grep -Fxq 'enabled=0' "$DCG_RM_BACKUP_CONFIG"; then

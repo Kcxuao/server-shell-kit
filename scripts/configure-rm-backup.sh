@@ -6,8 +6,16 @@ config="$TARGET_HOME/.config/zsh/server-shell-kit/rm-backup.conf"
 state=1
 if [[ -f "$config" ]] && grep -Fxq 'enabled=0' "$config"; then state=0; fi
 printf '\nrm -rf 自动备份当前：%s\n' "$([[ "$state" == 1 ]] && echo 已开启 || echo 已关闭)"
-printf '1  开启（默认）\n2  关闭\n0  返回\n选择操作：'
-IFS= read -r choice || exit 0
+case "${1:-}" in
+  status) exit 0 ;;
+  enable) choice=1 ;;
+  disable) choice=2 ;;
+  '')
+    printf '1  开启（默认）\n2  关闭\n0  返回\n选择操作：'
+    IFS= read -r choice || exit 0
+    ;;
+  *) echo '用法：configure-rm-backup.sh [status|enable|disable]' >&2; exit 2 ;;
+esac
 case "$choice" in
   1) value=1 ;;
   2) value=0 ;;

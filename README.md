@@ -25,6 +25,12 @@
 ```text
 server-shell-kit/
 ├── install.sh
+├── menus/
+│   ├── terminal.sh
+│   ├── programming.sh
+│   ├── docker.sh
+│   ├── doctor.sh
+│   └── system-tools.sh
 ├── scripts/
 │   ├── common.sh
 │   ├── install-zsh.sh
@@ -38,7 +44,10 @@ server-shell-kit/
 │   ├── bootstrap-base.sh
 │   ├── bootstrap-dev.sh
 │   ├── bootstrap-container.sh
+│   ├── install-docker.sh
 │   ├── configure-docker-mirrors.sh
+│   ├── configure-danger-guard.sh
+│   ├── configure-rm-backup.sh
 │   ├── install-language-manager.sh
 │   ├── configure-programming-mirror.py
 │   ├── doctor.sh
@@ -93,7 +102,7 @@ bash scripts/bootstrap.sh --plan base
 
 ## 编程环境安装
 
-主菜单选择“编程环境安装”。用 ↑↓ 移动，按 Enter 勾选或取消 Java、Python、Node.js、Rust；选中“下一步”并按 Enter，确认后逐项安装。安装失败不会阻止其他已选项目，结束时会显示每项结果。该菜单需要交互式终端。
+主菜单选择“编程环境”。用 ↑↓ 移动，按 Enter 勾选或取消 Java、Python、Node.js、Rust；选中“下一步”并按 Enter，确认后逐项安装。安装失败不会阻止其他已选项目，结束时会显示每项结果。该菜单需要交互式终端。
 
 Java 使用 SDKMAN 安装最新稳定 JDK 与 Maven；Python 使用 uv 安装托管 Python 并提供默认 `python`、`python3` 命令；Node.js 使用 nvm 安装当前稳定版与 npm；Rust 使用 rustup 安装 stable 工具链（包含 Cargo）。安装后自动设置国内包源：Maven 使用阿里云公共仓库，uv 使用清华 PyPI，npm 使用 npmmirror，Cargo 使用中科大 crates 镜像，无需输入地址。只调整目标用户的配置，首次覆盖现有文件前会保存 `.server-shell-kit.bak` 备份。已有工具会复用，重新选择时会检查或更新默认版本与包源；重新登录后 Zsh 环境设置生效。开发服务器方案只安装通用编译依赖，不自动安装这些语言版本。
 
@@ -105,13 +114,13 @@ Java 使用 SDKMAN 安装最新稳定 JDK 与 Maven；Python 使用 uv 安装托
 
 ## Docker 安装与镜像加速
 
-主菜单的“Docker 安装与镜像加速”可独立安装发行版提供的 Docker 和可用的 Compose 插件，也可只更新现有 Docker 的镜像加速配置。“容器服务器”方案安装 Docker 后同样提供可选的镜像加速设置。输入一个或多个 HTTPS 镜像地址，多个地址用逗号分隔；留空时保持原配置。项目不预设第三方镜像地址。
+主菜单的“Docker”可独立安装发行版提供的 Docker 和可用的 Compose 插件，也可只更新现有 Docker 的镜像加速配置。“容器服务器”方案安装 Docker 后同样提供可选的镜像加速设置。输入一个或多个 HTTPS 镜像地址，多个地址用逗号分隔；留空时保持原配置。项目不预设第三方镜像地址。
 
 镜像地址写入 `/etc/docker/daemon.json` 的 `registry-mirrors` 字段，其他字段会保留。脚本先校验新配置，保存原文件备份，再重启 Docker；若重启失败会恢复修改前的配置。未自动把用户加入 `docker` 组，日常使用请运行 `sudo docker`。镜像加速只针对 Docker Hub 拉取；地址是否可用取决于镜像服务本身。
 
 ## 软件源切换与迁移备份
 
-“新服务器初始化”菜单提供 APT 软件源切换：清华 TUNA、中科大 USTC、恢复首次切换前的源。切换仅替换 Debian/Ubuntu 官方源地址，展示差异并确认后执行；原文件保存到 `/var/backups/server-shell-kit/apt/original`。脚本运行 `apt-get update` 验证，失败时恢复本次切换前的文件。Debian 安全更新源保持官方地址。Ubuntu 端口架构使用对应的 `ubuntu-ports` 镜像路径。
+“系统工具”菜单提供 APT 软件源切换：清华 TUNA、中科大 USTC、恢复首次切换前的源。切换仅替换 Debian/Ubuntu 官方源地址，展示差异并确认后执行；原文件保存到 `/var/backups/server-shell-kit/apt/original`。脚本运行 `apt-get update` 验证，失败时恢复本次切换前的文件。Debian 安全更新源保持官方地址。Ubuntu 端口架构使用对应的 `ubuntu-ports` 镜像路径。
 
 迁移备份导出选定的 Shell、Git、Vim、Tmux 配置与 SSH `authorized_keys`，并保存系统信息、APT 源、已安装软件包与已启用服务清单。备份目录默认位于目标用户 HOME 下，权限为 `0700`。将整个目录复制到新机器，再在菜单中选择“从备份目录导入”。导入会校验文件、备份已有个人配置，并合并公钥；系统源和软件清单仅供参考，不自动覆盖或批量安装。备份不包含 SSH 私钥、数据库和 Docker 数据。
 
@@ -121,7 +130,7 @@ Java 使用 SDKMAN 安装最新稳定 JDK 与 Maven；Python 使用 uv 安装托
 
 一级风险需要输入 `yes`（大小写均可），二级风险需要重新输入完整命令。
 
-交互式 Zsh 中执行 `rm -rf` 时，自动备份默认开启：确认后会先将现存目标复制到 `~/.local/share/server-shell-kit/rm-backups/`，并写入原路径清单 `paths.txt`；备份成功后才执行删除。备份失败时取消命令。为确保备份范围准确，开启备份时仅支持独立的 `rm -rf` 命令和明确的字面路径；包含通配符、变量展开或复合命令的删除会被取消。备份目录需有足够空间，删除包含该备份目录的路径也会被取消。可在主菜单“rm -rf 自动备份设置”中关闭或重新开启；关闭后仍保留高危命令确认。也可在 Zsh 中使用 `dcg-backup-enable`、`dcg-backup-disable` 和 `dcg-backup-status`。
+交互式 Zsh 中执行 `rm -rf` 时，自动备份默认开启：确认后会先将现存目标复制到 `~/.local/share/server-shell-kit/rm-backups/`，并写入原路径清单 `paths.txt`；备份成功后才执行删除。备份失败时取消命令。为确保备份范围准确，开启备份时仅支持独立的 `rm -rf` 命令和明确的字面路径；包含通配符、变量展开或复合命令的删除会被取消。备份目录需有足够空间，删除包含该备份目录的路径也会被取消。可在“终端环境 → 高危命令保护设置”中查看或切换 Danger Guard 和 rm 递归删除备份状态；关闭备份后仍保留高危命令确认。也可在 Zsh 中使用 `dcg-backup-enable`、`dcg-backup-disable` 和 `dcg-backup-status`。
 
 测试：
 
@@ -138,4 +147,4 @@ dcg-test 'iptables -F'
 
 ## 更新与卸载
 
-主菜单提供新服务器初始化、终端环境安装、自选组件、更新配置和卸载。自选组件菜单支持多选：方向键移动、Enter 勾选，选择“下一步”后统一确认并逐项执行，最后显示每项结果；可单独安装或更新组件。菜单中的“更新已安装的工具配置”只更新已经存在的 Starship、Alias 和高危命令保护文件，不安装缺失组件，也不重复安装系统软件。配置文件首次被覆盖前会保存同目录下的 `.server-shell-kit.bak` 备份。卸载仅移除工具文件和它添加到 `.zshrc` 的启动行，不卸载 Zsh、Starship 或系统插件，也不自动覆盖之后的个人修改。
+主菜单提供新服务器初始化、终端环境、编程环境、Docker、环境体检、系统工具、更新配置和卸载。终端环境子菜单提供完整安装、自选组件和高危命令保护设置；系统工具子菜单提供 APT 镜像、管理员用户、SSH Key、UFW 和配置迁移。自选组件菜单支持多选：方向键移动、Enter 勾选，选择“下一步”后统一确认并逐项执行，最后显示每项结果；可单独安装或更新组件。菜单中的“更新配置”只更新已经存在的 Starship、Alias 和高危命令保护文件，不安装缺失组件，也不重复安装系统软件。配置文件首次被覆盖前会保存同目录下的 `.server-shell-kit.bak` 备份。卸载仅移除工具文件和它添加到 `.zshrc` 的启动行，不卸载 Zsh、Starship 或系统插件，也不自动覆盖之后的个人修改。
