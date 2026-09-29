@@ -67,6 +67,7 @@ server-shell-kit/
 │   ├── backup-mysql.sh
 │   ├── plan.sh
 │   ├── verify.sh
+│   ├── diff.sh
 │   └── uninstall.sh
 ├── configs/
 │   ├── aliases.zsh
@@ -190,6 +191,16 @@ bash scripts/verify.sh --source /path/to/backup/snapshot.json
 ```
 
 可用 `--target /path/to/target-snapshot.json` 验证已有目标快照。报告逐项显示 PASS、WARNING、FAIL 及汇总；存在 FAIL 时退出码为 1。检查覆盖磁盘、内存、DNS、时区、运行中的 systemd 服务、监听端口、开发工具、Docker 容器与 Volume。来源快照显示 PostgreSQL、MySQL 或 MariaDB 运行时，脚本会在目标端执行只读 `SELECT 1` 检查连通性；缺少客户端会报告 WARNING。默认根据目标快照选择系统服务或 Docker 容器，也可使用 `--postgres-source`、`--mysql-source` 和对应的 `--postgres-user`、`--mysql-user` 指定目标。数据库认证使用现有客户端配置，不接收命令行密码。目标快照可能已过期，正式验收应使用实时状态。
+
+## 来源与目标状态差异
+
+在目标服务器上用来源快照与当前状态比较：
+
+```bash
+bash scripts/diff.sh --source /path/to/backup/snapshot.json
+```
+
+也可用 `--target /path/to/target-snapshot.json` 比较两份已有快照。报告以 SAME、CHANGED、MISSING、EXTRA 标记 OS、时区、用户、开发工具、Docker、服务、监听端口和数据库运行状态的差异。任一侧清单不可读取时只比较清单可用状态，不将未知条目误判为缺失或新增。数据库快照仅包含 systemd 和 Docker 发现信息，因此不能比较实际数据库名或数据内容。脚本只读，不修改系统。
 
 [清华 Ubuntu 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/)、[清华 Debian 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)、[中科大镜像说明](https://mirrors.ustc.edu.cn/help/debian.html)。
 
