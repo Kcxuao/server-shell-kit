@@ -167,6 +167,19 @@ bash scripts/plan.sh --manifest /path/to/backup/manifest.json \
 
 计划只读取这三份 JSON，不修改系统。它列出可推断的安装、用户创建、Docker 镜像拉取与网络创建、文件/数据库/Volume 恢复和端口动作，并提示 OS、磁盘与已知冲突。当前环境快照不查询数据库内容，也不列出目标文件；因此默认会明确提示这些冲突无法确认。若目标快照由可信清单补充了 `databases.postgresql.existing_databases`、`databases.mysql.existing_databases` 或 `databases.mariadb.existing_databases` 数组，计划才会据此标记数据库名冲突。加密备份需先解密到受限目录再读取 Manifest。计划不会执行恢复。
 
+## 恢复备份
+
+先在目标服务器生成快照并查看计划，再以 root 执行实际恢复：
+
+```bash
+bash scripts/restore.sh --bundle /path/to/backup --target-snapshot /path/to/target-snapshot.json --dry-run
+sudo bash scripts/restore.sh --bundle /path/to/backup --apply --conflict skip
+```
+
+实际恢复会重新生成目标快照，校验 Manifest 和备份文件，并在修改前检查系统、磁盘、目标路径、Volume 及数据库冲突。PostgreSQL/MySQL 存在性检查只查询数据库名称；目标数据库服务或容器须事先运行并配置好免交互认证。查询失败会中止。冲突可选 `--conflict skip`、`--conflict backup-replace` 或 `--conflict abort`；交互终端未指定时会询问，非交互执行必须明确指定。`backup-replace` 在替换前把原有文件和数据库备份到 `/root/server-shell-kit-pre-restore-*`。MySQL 使用合并 SQL 归档，若任一目标库已存在，`skip` 会跳过整份 MySQL 归档。恢复前还须输入 `RESTORE` 确认。
+
+PostgreSQL 全局角色默认不导入；确需导入时使用 `--restore-globals`。数据库目标可用 `--postgres-source docker:容器`、`--mysql-source docker:容器` 及相应 `--postgres-user`、`--mysql-user` 指定。Docker 镜像层、应用密钥和防火墙规则不在备份中，Compose 服务需要按应用自身要求检查后启动。尚未在真实数据库上执行自动恢复测试。
+
 [清华 Ubuntu 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/)、[清华 Debian 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)、[中科大镜像说明](https://mirrors.ustc.edu.cn/help/debian.html)。
 
 ## 高危命令保护
