@@ -16,40 +16,15 @@ header(){
   printf '\n  %b%bSERVER SHELL KIT%b  %b/ 服务器配置%b\n' "$CYAN" "$BOLD" "$RESET" "$CYAN" "$RESET"
   line
 }
-status_chip(){
-  if [[ "$2" == 1 ]]; then
-    printf '%b●%b %s' "$GREEN" "$RESET" "$1"
-  else
-    printf '%b○%b %s' "$YELLOW" "$RESET" "$1"
-  fi
-}
 menu_item(){ printf '  %b%2s%b  %s\n' "$CYAN$BOLD" "$1" "$RESET" "$2"; }
 target_info(){
   if [[ $EUID -eq 0 ]]; then TARGET_USER="${SUDO_USER:-root}"; else TARGET_USER="$(id -un)"; fi
   TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
   [[ -n "$TARGET_HOME" && "$TARGET_HOME" != / ]] || { echo '无法确定目标用户的 HOME。' >&2; return 1; }
 }
-show_status(){
+show_target(){
   target_info
-  local zsh=0 starship=0 plugins=0 aliases=0 guard=0
-  command -v zsh >/dev/null 2>&1 && zsh=1
-  command -v starship >/dev/null 2>&1 && starship=1
-  [[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh && -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] && plugins=1
-  [[ -f "$TARGET_HOME/.config/zsh/server-shell-kit/aliases.zsh" ]] && aliases=1
-  if [[ -f "$TARGET_HOME/.config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh" ]] &&
-     [[ -f "$TARGET_HOME/.zshrc" ]] &&
-     grep -Fq 'dangerous-command-guard.plugin.zsh' "$TARGET_HOME/.zshrc" &&
-     { [[ ! -f "$TARGET_HOME/.config/zsh/server-shell-kit/danger-guard.conf" ]] ||
-       ! grep -Fxq 'enabled=0' "$TARGET_HOME/.config/zsh/server-shell-kit/danger-guard.conf"; }; then
-    guard=1
-  fi
   printf '  %b目标%b  %s  ·  %s\n' "$BOLD" "$RESET" "$TARGET_USER" "$(. /etc/os-release 2>/dev/null; printf '%s' "${PRETTY_NAME:-未知系统}")"
-  printf '  '
-  status_chip Zsh "$zsh"; printf '   '; status_chip Starship "$starship"; printf '   '; status_chip 插件 "$plugins"
-  printf '\n  '
-  status_chip Alias "$aliases"; printf '   '; status_chip 命令保护 "$guard"
-  printf '\n'
-
 }
 preflight(){
   local name="$1"
@@ -140,7 +115,7 @@ run_local(){
 
 show_menu(){
   header
-  show_status
+  show_target
   printf '\n  %b开始使用%b\n' "$BOLD" "$RESET"
   menu_item 1 '新服务器初始化  ›'
   menu_item 2 '终端环境  ›'

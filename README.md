@@ -10,7 +10,7 @@
 - zsh-syntax-highlighting
 - 常用 Git / Docker / Linux Alias
 - 交互式高危命令拦截
-- 带当前状态、操作前确认和结果提示的菜单式安装、更新、卸载
+- 带操作前确认和结果提示的菜单式安装、更新、卸载
 - 首次修改用户配置时保存 `.server-shell-kit.bak` 备份
 - 新服务器初始化：基础、开发、容器三种方案，执行前预览、按步骤记录结果
 - 独立的编程环境安装：多选 Java、Python、Node.js、Rust，安装对应管理器及默认稳定版本
