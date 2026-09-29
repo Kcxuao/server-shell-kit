@@ -66,6 +66,7 @@ server-shell-kit/
 │   ├── backup-postgresql.sh
 │   ├── backup-mysql.sh
 │   ├── plan.sh
+│   ├── verify.sh
 │   └── uninstall.sh
 ├── configs/
 │   ├── aliases.zsh
@@ -179,6 +180,16 @@ sudo bash scripts/restore.sh --bundle /path/to/backup --apply --conflict skip
 实际恢复会重新生成目标快照，校验 Manifest 和备份文件，并在修改前检查系统、磁盘、目标路径、Volume 及数据库冲突。PostgreSQL/MySQL 存在性检查只查询数据库名称；目标数据库服务或容器须事先运行并配置好免交互认证。查询失败会中止。冲突可选 `--conflict skip`、`--conflict backup-replace` 或 `--conflict abort`；交互终端未指定时会询问，非交互执行必须明确指定。`backup-replace` 在替换前把原有文件和数据库备份到 `/root/server-shell-kit-pre-restore-*`。MySQL 使用合并 SQL 归档，若任一目标库已存在，`skip` 会跳过整份 MySQL 归档。恢复前还须输入 `RESTORE` 确认。
 
 PostgreSQL 全局角色默认不导入；确需导入时使用 `--restore-globals`。数据库目标可用 `--postgres-source docker:容器`、`--mysql-source docker:容器` 及相应 `--postgres-user`、`--mysql-user` 指定。Docker 镜像层、应用密钥和防火墙规则不在备份中，Compose 服务需要按应用自身要求检查后启动。尚未在真实数据库上执行自动恢复测试。
+
+## 迁移后验证
+
+恢复完成后，使用来源快照与目标服务器的实时状态进行只读比对：
+
+```bash
+bash scripts/verify.sh --source /path/to/backup/snapshot.json
+```
+
+可用 `--target /path/to/target-snapshot.json` 验证已有目标快照。报告逐项显示 PASS、WARNING、FAIL 及汇总；存在 FAIL 时退出码为 1。检查覆盖磁盘、内存、DNS、时区、运行中的 systemd 服务、监听端口、开发工具、Docker 容器与 Volume。来源快照显示 PostgreSQL、MySQL 或 MariaDB 运行时，脚本会在目标端执行只读 `SELECT 1` 检查连通性；缺少客户端会报告 WARNING。默认根据目标快照选择系统服务或 Docker 容器，也可使用 `--postgres-source`、`--mysql-source` 和对应的 `--postgres-user`、`--mysql-user` 指定目标。数据库认证使用现有客户端配置，不接收命令行密码。目标快照可能已过期，正式验收应使用实时状态。
 
 [清华 Ubuntu 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/)、[清华 Debian 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)、[中科大镜像说明](https://mirrors.ustc.edu.cn/help/debian.html)。
 
