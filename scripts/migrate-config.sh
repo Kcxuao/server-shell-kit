@@ -1,50 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
-
-user_files=(
-  .zshrc .bashrc .gitconfig .vimrc .tmux.conf
-  .config/starship.toml
-  .config/zsh/server-shell-kit/aliases.zsh
-  .config/zsh/plugins/dangerous-command-guard/dangerous-command-guard.plugin.zsh
-  .ssh/authorized_keys
-)
-system_files=(/etc/os-release /etc/timezone /etc/default/locale /etc/apt/sources.list)
-shopt -s nullglob
-for file in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/debian.sources; do
-  [[ -f "$file" ]] && system_files+=("$file")
-done
-shopt -u nullglob
+source "$(dirname -- "${BASH_SOURCE[0]}")/backup-config.sh"
 
 backup(){
-  local bundle rel source destination file
+  local bundle
   bundle="$(run_user mktemp -d "$TARGET_HOME/server-shell-kit-backup-XXXXXXXX")"
   run_user chmod 0700 "$bundle"
-  run_user mkdir -p "$bundle/home" "$bundle/system"
-  for rel in "${user_files[@]}"; do
-    source="$TARGET_HOME/$rel"
-    [[ -f "$source" && ! -L "$source" ]] || continue
-    destination="$bundle/home/$rel"
-    run_user mkdir -p "$(dirname "$destination")"
-    run_user cp -p -- "$source" "$destination"
-  done
-  for file in "${system_files[@]}"; do
-    [[ -f "$file" && ! -L "$file" ]] || continue
-    destination="$bundle/system${file#/etc}"
-    run_user mkdir -p "$(dirname "$destination")"
-    run_root cat -- "$file" | run_user tee "$destination" >/dev/null
-    run_user chmod 0600 "$destination"
-  done
+  backup_config "$bundle"
   {
     printf 'created_utc=%s\n' "$(date -u +%FT%TZ)"
     printf 'source_user=%s\n' "$TARGET_USER"
     printf 'source_os=%s\n' "$(. /etc/os-release; printf '%s' "${PRETTY_NAME:-unknown}")"
     printf 'note=system files are reference only; restore imports selected home config only\n'
   } | run_user tee "$bundle/manifest.txt" >/dev/null
-  dpkg-query -W -f='${Status} ${binary:Package}\n' | awk '$1 == "install" && $2 == "ok" && $3 == "installed" { print $4 }' | run_user tee "$bundle/packages.txt" >/dev/null
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl list-unit-files --state=enabled --no-legend 2>/dev/null | run_user tee "$bundle/enabled-services.txt" >/dev/null || true
-  fi
   (cd "$bundle" && find home system -type f -print0 | sort -z | xargs -0 sha256sum) | run_user tee "$bundle/SHA256SUMS" >/dev/null
   printf '备份目录：%s\n' "$bundle"
   printf '请将整个目录复制到新服务器；备份不含 SSH 私钥、数据库和 Docker 数据。\n'

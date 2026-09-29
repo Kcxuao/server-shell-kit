@@ -58,6 +58,12 @@ server-shell-kit/
 │   ├── setup-firewall.sh
 │   ├── switch-apt-mirror.sh
 │   ├── migrate-config.sh
+│   ├── backup.sh
+│   ├── backup-config.sh
+│   ├── backup-files.sh
+│   ├── backup-docker.sh
+│   ├── backup-postgresql.sh
+│   ├── backup-mysql.sh
 │   └── uninstall.sh
 ├── configs/
 │   ├── aliases.zsh
@@ -131,6 +137,20 @@ Java 使用 SDKMAN 安装最新稳定 JDK 与 Maven；Python 使用 uv 安装托
 “系统工具”菜单提供 APT 软件源切换：清华 TUNA、中科大 USTC、恢复首次切换前的源。切换仅替换 Debian/Ubuntu 官方源地址，展示差异并确认后执行；原文件保存到 `/var/backups/server-shell-kit/apt/original`。脚本运行 `apt-get update` 验证，失败时恢复本次切换前的文件。Debian 安全更新源保持官方地址。Ubuntu 端口架构使用对应的 `ubuntu-ports` 镜像路径。
 
 迁移备份导出选定的 Shell、Git、Vim、Tmux 配置与 SSH `authorized_keys`，并保存系统信息、APT 源、已安装软件包与已启用服务清单。备份目录默认位于目标用户 HOME 下，权限为 `0700`。将整个目录复制到新机器，再在菜单中选择“从备份目录导入”。导入会校验文件、备份已有个人配置，并合并公钥；系统源和软件清单仅供参考，不自动覆盖或批量安装。备份不包含 SSH 私钥、数据库和 Docker 数据。
+
+## 结构化备份
+
+`backup.sh` 提供 `config`（配置）、`data`（数据）和 `full`（两者）三种类型；数据库名和自定义目录必须显式指定。输出目录默认在当前用户 HOME，可用 `--output-dir` 指定其他绝对目录。
+
+```bash
+bash scripts/backup.sh config
+bash scripts/backup.sh data --path /opt/app --postgres-db appdb --mysql-db appdb
+bash scripts/backup.sh full --postgres-source docker:pg --postgres-db appdb --mysql-source docker:mysql --mysql-db appdb
+```
+
+数据库默认从系统服务导出；`--postgres-source` 和 `--mysql-source` 可指定 Docker 容器，`--postgres-user`、`--mysql-user` 可指定数据库用户。PostgreSQL 用 `pg_dump` 导出指定数据库，并用 `pg_dumpall --globals-only` 导出全局角色；MySQL/MariaDB 使用 `mysqldump --single-transaction`，适用于事务表。脚本不接收命令行密码，身份验证须由数据库现有配置提供。未指定数据库名时不进行数据库访问；若快照发现该数据库正在运行，则将对应模块记为 `FAILED`。全局角色文件可能包含密码哈希，备份文件应按敏感数据保管。
+
+每次备份均包含 `snapshot.json`、`manifest.json` 和已完成模块的文件。Manifest 记录 `SUCCESS`、`FAILED`、`SKIPPED`，以及文件大小和 SHA-256；单个模块失败不会删除其他模块的结果。备份目录权限为 `0700`，文件权限为 `0600`。配置文件命中基础敏感项检查时会跳过该文件，并在 Manifest 中将配置模块标记为 `FAILED`。Docker 镜像仅保存名称、tag 和 digest 等元数据，不导出镜像层；正在使用或关联数据库容器的 Volume 会跳过并写入 Manifest。Compose 文件仅在可读取且未命中敏感项检查时复制。自定义目录按读取时状态归档，不会冻结运行中的应用。备份当前未加密，请按包含敏感业务数据的文件保管。
 
 [清华 Ubuntu 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/)、[清华 Debian 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)、[中科大镜像说明](https://mirrors.ustc.edu.cn/help/debian.html)。
 

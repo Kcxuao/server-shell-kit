@@ -100,6 +100,8 @@ download_repo(){
     scripts/install-docker.sh
     scripts/setup-admin-user.sh scripts/setup-ssh-key.sh scripts/setup-firewall.sh
     scripts/switch-apt-mirror.sh scripts/migrate-config.sh
+    scripts/backup.sh scripts/backup-config.sh scripts/backup-files.sh
+    scripts/backup-docker.sh scripts/backup-postgresql.sh scripts/backup-mysql.sh
     scripts/install-language-manager.sh
     scripts/configure-programming-mirror.py
     scripts/configure-rm-backup.sh
