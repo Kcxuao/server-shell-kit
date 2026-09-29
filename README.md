@@ -182,6 +182,14 @@ sudo bash scripts/restore.sh --bundle /path/to/backup --apply --conflict skip
 
 PostgreSQL 全局角色默认不导入；确需导入时使用 `--restore-globals`。数据库目标可用 `--postgres-source docker:容器`、`--mysql-source docker:容器` 及相应 `--postgres-user`、`--mysql-user` 指定。Docker 镜像层、应用密钥和防火墙规则不在备份中，Compose 服务需要按应用自身要求检查后启动。尚未在真实数据库上执行自动恢复测试。
 
+实际恢复通过预检和确认后会创建 Job ID，并把每个步骤的状态、时间与失败退出码保存到 root 的 `~/.local/state/server-shell-kit/jobs/JOB_ID/job.json`。失败后可续跑：
+
+```bash
+sudo bash scripts/restore.sh resume JOB_ID
+```
+
+续跑会重新校验备份、读取实时目标状态并再次要求确认；已成功的步骤会跳过，失败或中断的步骤重新执行。若未完成步骤出现新冲突，可加 `--conflict skip|backup-replace|abort` 明确处理。状态文件还记录替换前的数据备份目录；保留备份目录，直到迁移结果已核验。
+
 ## 迁移后验证
 
 恢复完成后，使用来源快照与目标服务器的实时状态进行只读比对：

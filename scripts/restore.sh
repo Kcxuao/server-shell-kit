@@ -3,8 +3,16 @@ set -Eeuo pipefail
 umask 077
 
 usage(){
-  echo '用法：restore.sh --bundle 绝对备份目录 [--target-snapshot 快照.json --dry-run | --apply] [--conflict skip|backup-replace|abort] [--restore-globals] [--postgres-source system|docker:容器] [--mysql-source system|docker:容器] [--postgres-user 用户] [--mysql-user 用户]' >&2
+  echo '用法：restore.sh --bundle 绝对备份目录 [--target-snapshot 快照.json --dry-run | --apply] [--conflict skip|backup-replace|abort] [--restore-globals] [--postgres-source system|docker:容器] [--mysql-source system|docker:容器] [--postgres-user 用户] [--mysql-user 用户]；或 restore.sh resume JOB_ID [--conflict skip|backup-replace|abort]' >&2
 }
+resume_id='' resume_conflict_override=''
+if [[ "${1:-}" == resume ]]; then
+  [[ ( $# -eq 2 || ( $# -eq 4 && "$3" == --conflict ) ) &&
+     "$2" =~ ^[0-9]{8}-[0-9]{6}-[A-Za-z0-9]{8}$ ]] || { usage; exit 2; }
+  resume_id="$2"
+  if (( $# == 4 )); then resume_conflict_override="$4"; fi
+  shift "$#"
+fi
 bundle='' target_snapshot='' apply=0 conflict_policy=ask
 restore_globals=0
 postgres_source=system mysql_source=system postgres_user=postgres mysql_user=root
@@ -28,6 +36,66 @@ while (( $# > 0 )); do
     *) usage; exit 2 ;;
   esac
 done
+job_file='' job_dir='' job_root='' job_lock_fd='' current_step=''
+job_write(){
+  local temporary
+  temporary="$(mktemp "$job_dir/.job.XXXXXXXX")" || return 1
+  if jq "$@" "$job_file" > "$temporary"; then
+    chmod 0600 -- "$temporary"
+    mv -- "$temporary" "$job_file"
+  else
+    rm -f -- "$temporary"
+    return 1
+  fi
+}
+job_update_step(){
+  local step="$1" status="$2" reason="$3" now
+  now="$(date -u +%FT%TZ)"
+  job_write --arg step "$step" --arg status "$status" --arg reason "$reason" \
+    --arg now "$now" '
+    .current_stage = $step |
+    .status = (if $status == "FAILED" then "FAILED" else "RUNNING" end) |
+    .steps[$step].status = $status |
+    .steps[$step].started_at = (if $status == "RUNNING" then $now
+      else .steps[$step].started_at end) |
+    .steps[$step].completed_at = (if $status == "RUNNING" then null else $now end) |
+    .steps[$step].reason = $reason'
+}
+job_mark_failed(){
+  local exit_code="$1" step="${current_step:-preflight}"
+  [[ -n "$job_file" && -f "$job_file" ]] || return 0
+  job_update_step "$step" FAILED "退出码 $exit_code"
+}
+if [[ -n "$resume_id" ]]; then
+  [[ $EUID -eq 0 ]] || { echo '续跑需要 root 权限。' >&2; exit 1; }
+  command -v jq >/dev/null 2>&1 || { echo '续跑需要 jq。' >&2; exit 1; }
+  command -v flock >/dev/null 2>&1 || { echo '续跑需要 flock。' >&2; exit 1; }
+  root_home="$(getent passwd 0 | cut -d: -f6)"
+  [[ "$root_home" == /* ]] || { echo '无法确定 root HOME。' >&2; exit 1; }
+  job_root="$root_home/.local/state/server-shell-kit/jobs"
+  job_dir="$job_root/$resume_id"
+  job_file="$job_dir/job.json"
+  [[ -d "$job_dir" && ! -L "$job_dir" && -f "$job_file" && ! -L "$job_file" &&
+     "$(stat -c %u "$job_dir")" == 0 && "$(stat -c %u "$job_file")" == 0 ]] || {
+    echo '任务状态不存在或不安全。' >&2; exit 2;
+  }
+  exec {job_lock_fd}> "$job_dir/lock"
+  flock -n "$job_lock_fd" || { echo '任务正在由其他进程执行。' >&2; exit 1; }
+  jq -e '.schema_version == 1 and (.status == "FAILED" or .status == "RUNNING") and
+    (.bundle | type == "string") and (.options | type == "object") and
+    (.steps | type == "object") and (.manifest_sha256 | type == "string")' \
+    "$job_file" >/dev/null || { echo '任务状态格式无效或已完成。' >&2; exit 2; }
+  bundle="$(jq -r '.bundle' "$job_file")"
+  conflict_policy="$(jq -r '.options.conflict_policy' "$job_file")"
+  [[ -z "$resume_conflict_override" ]] || conflict_policy="$resume_conflict_override"
+  postgres_source="$(jq -r '.options.postgres_source' "$job_file")"
+  mysql_source="$(jq -r '.options.mysql_source' "$job_file")"
+  postgres_user="$(jq -r '.options.postgres_user' "$job_file")"
+  mysql_user="$(jq -r '.options.mysql_user' "$job_file")"
+  restore_globals="$(jq -r '.options.restore_globals' "$job_file")"
+  [[ "$restore_globals" == 0 || "$restore_globals" == 1 ]] || { echo '任务选项无效。' >&2; exit 2; }
+  apply=1
+fi
 [[ "$bundle" == /* && -d "$bundle" ]] || { usage; exit 2; }
 case "$conflict_policy" in ask|skip|backup-replace|abort) ;; *) usage; exit 2 ;; esac
 for source in "$postgres_source" "$mysql_source"; do
@@ -43,6 +111,12 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bundle="$(cd -- "$bundle" && pwd -P)"
 manifest="$bundle/manifest.json"
 source_snapshot="$bundle/snapshot.json"
+if [[ -n "$resume_id" ]]; then
+  expected_manifest_sha="$(jq -r '.manifest_sha256' "$job_file")"
+  [[ "$(sha256sum "$manifest" 2>/dev/null | cut -d' ' -f1)" == "$expected_manifest_sha" ]] || {
+    echo '备份 Manifest 已变化，不能续跑。' >&2; exit 1;
+  }
+fi
 [[ -f "$manifest" && -f "$source_snapshot" ]] || {
   echo '备份目录缺少 Manifest 或来源快照。' >&2; exit 2;
 }
@@ -94,6 +168,8 @@ if (( apply )); then
   target_snapshot="$(mktemp /tmp/server-shell-kit-restore-target-XXXXXXXX.json)"
   active_stage=''
   cleanup(){
+    local exit_code=$?
+    if (( exit_code != 0 )); then job_mark_failed "$exit_code" || true; fi
     rm -f -- "$target_snapshot"
     if [[ -n "$active_stage" && -d "$active_stage" ]]; then
       rm -rf -- "$active_stage"
@@ -103,6 +179,10 @@ if (( apply )); then
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'exit 129' HUP
+  if [[ -n "$resume_id" ]]; then
+    current_step=preflight
+    job_update_step preflight RUNNING ''
+  fi
   bash "$script_dir/discover.sh" > "$target_snapshot"
 else
   [[ -f "$target_snapshot" ]] || { usage; exit 2; }
@@ -150,13 +230,26 @@ jq -e '
   echo 'Manifest 缺少恢复所需清单，请使用新版备份。' >&2; exit 1;
 }
 
-for command_name in tar realpath stat install getent useradd; do
+for command_name in tar realpath stat install getent useradd flock; do
   command -v "$command_name" >/dev/null 2>&1 || {
     printf '缺少恢复所需命令：%s\n' "$command_name" >&2; exit 1;
   }
 done
 port_conflict=0
-[[ "$plan_text" != *'[CONFLICT] target port already in use:'* ]] || port_conflict=1
+while IFS= read -r line; do
+  [[ "$line" == '[CONFLICT] target port already in use: '* ]] || continue
+  port="${line#'[CONFLICT] target port already in use: '}"
+  if [[ -n "$resume_id" ]] &&
+     jq -e --arg port "$port" '(.confirmed_ports // []) | index($port) != null' \
+       "$job_file" >/dev/null; then
+    continue
+  fi
+  port_conflict=1
+done <<< "$plan_text"
+job_step_success(){
+  [[ -n "$job_file" ]] &&
+    jq -e --arg step "$1" '.steps[$step].status == "SUCCESS"' "$job_file" >/dev/null
+}
 
 source_home="$(jq -r --arg user "$source_user" \
   '.users | if type == "array" then [.[] | select(.name == $user) | .home] | first // empty
@@ -201,10 +294,12 @@ declare -a conflicts=()
 declare -A seen_conflict=()
 add_conflict(){
   local kind="$1" name="$2" key="$1:$2"
+  if [[ -n "$resume_id" ]] && job_step_success "$conflict_step"; then return 0; fi
   [[ -n "${seen_conflict[$key]:-}" ]] && return 0
   seen_conflict[$key]=1
   conflicts+=("$key")
 }
+conflict_step=config
 while IFS= read -r relative; do
   [[ -n "$relative" ]] || continue
   valid_relative "$relative" || { echo '配置路径无效。' >&2; exit 1; }
@@ -217,6 +312,7 @@ while IFS= read -r relative; do
     add_conflict file "$destination"
   fi
 done < <(jq -r '.files[] | .path | select(startswith("home/"))' "$manifest")
+conflict_step=files
 while IFS=$'\t' read -r archive source; do
   [[ -n "$archive" ]] || continue
   archive_file="$(bundle_file "$archive")" || { echo '自定义归档缺失。' >&2; exit 1; }
@@ -234,6 +330,7 @@ while IFS=$'\t' read -r archive source; do
   safe_parent "$source" || { echo "自定义目标路径不安全：$source" >&2; exit 1; }
   [[ ! -e "$source" && ! -L "$source" ]] || add_conflict file "$source"
 done < <(jq -r '.modules.files.details[]? | [.archive,.source] | @tsv' "$manifest")
+conflict_step=compose
 while IFS=$'\t' read -r archive source; do
   [[ -n "$archive" ]] || continue
   archive_file="$(bundle_file "$archive")" || { echo 'Compose 文件缺失。' >&2; exit 1; }
@@ -245,6 +342,7 @@ while IFS=$'\t' read -r archive source; do
   [[ ! -e "$source" && ! -L "$source" ]] || add_conflict file "$source"
 done < <(jq -r '.modules.docker.details.compose_files[]? |
   select(.status == "SUCCESS") | [.file,.source] | @tsv' "$manifest")
+conflict_step=volumes
 if jq -e '.modules.docker.details.volumes[]? | select(.status == "SUCCESS")' \
   "$manifest" >/dev/null; then
   if command -v docker >/dev/null 2>&1; then
@@ -270,6 +368,7 @@ if jq -e '.modules.docker.details.volumes[]? | select(.status == "SUCCESS")' \
 fi
 
 # 数据库存在性检查在所有文件与 Volume 预检之后进行。
+conflict_step=database
 source "$script_dir/restore-databases.sh"
 preflight_databases
 
@@ -283,6 +382,9 @@ ensure_backup_dir(){
   if [[ -z "$backup_dir" ]]; then
     backup_dir="$(mktemp -d /root/server-shell-kit-pre-restore-XXXXXXXX)"
     chmod 0700 -- "$backup_dir"
+    if [[ -n "$job_file" ]]; then
+      job_write --arg dir "$backup_dir" '.backup_dirs = ((.backup_dirs // []) + [$dir])'
+    fi
     printf '原有数据备份目录：%s\n' "$backup_dir"
   fi
 }
@@ -610,21 +712,143 @@ verify_restored_files(){
   done
   (( failures == 0 ))
 }
+verify_restored(){
+  verify_restored_files
+  verify_databases
+}
+
+job_init(){
+  local root_home now manifest_sha
+  root_home="$(getent passwd 0 | cut -d: -f6)"
+  [[ "$root_home" == /* ]] || { echo '无法确定 root HOME。' >&2; return 1; }
+  job_root="$root_home/.local/state/server-shell-kit/jobs"
+  install -d -m 0700 -- "$job_root"
+  job_dir="$(mktemp -d "$job_root/$(date -u +%Y%m%d-%H%M%S)-XXXXXXXX")"
+  job_file="$job_dir/job.json"
+  exec {job_lock_fd}> "$job_dir/lock"
+  flock -n "$job_lock_fd" || return 1
+  now="$(date -u +%FT%TZ)"
+  manifest_sha="$(sha256sum "$manifest" | cut -d' ' -f1)"
+  jq -nc --arg id "${job_dir##*/}" --arg bundle "$bundle" \
+    --arg manifest_sha "$manifest_sha" --arg now "$now" \
+    --arg conflict "$conflict_policy" --arg postgres_source "$postgres_source" \
+    --arg mysql_source "$mysql_source" --arg postgres_user "$postgres_user" \
+    --arg mysql_user "$mysql_user" --argjson restore_globals "$restore_globals" '
+    {schema_version:1,id:$id,bundle:$bundle,manifest_sha256:$manifest_sha,
+     status:"RUNNING",current_stage:"preflight",started_at:$now,completed_at:null,
+     backup_dirs:[],confirmed_ports:[],
+     options:{conflict_policy:$conflict,postgres_source:$postgres_source,
+       mysql_source:$mysql_source,postgres_user:$postgres_user,mysql_user:$mysql_user,
+       restore_globals:$restore_globals},
+     steps:(["preflight","system","user","dependencies","docker","config",
+       "compose","volumes","database","files","services","verify"] |
+       map({key:.,value:{status:"PENDING",started_at:null,completed_at:null,reason:""}}) |
+       from_entries)}' > "$job_file"
+  chmod 0600 -- "$job_file"
+  job_update_step preflight SUCCESS ''
+  printf '迁移任务 ID：%s\n' "${job_dir##*/}"
+}
+job_record_paths(){
+  local step="$1" paths_json
+  case "$step" in
+    config) paths_json="$(jq -nc '$ARGS.positional' --args "${restored_config_paths[@]}")" ;;
+    compose) paths_json="$(jq -nc '$ARGS.positional' --args "${restored_compose_paths[@]}")" ;;
+    volumes) paths_json="$(jq -nc '$ARGS.positional' --args "${restored_volume_names[@]}")" ;;
+    files) paths_json="$(jq -nc '$ARGS.positional' --args "${restored_custom_paths[@]}")" ;;
+    *) return 0 ;;
+  esac
+  job_write --arg step "$step" --argjson paths "$paths_json" '.steps[$step].restored = $paths'
+}
+job_current_ports(){
+  bash "$script_dir/discover.sh" | jq -c '
+    [.network.listening_ports | if type == "array" then .[] else empty end |
+      select(.protocol == "tcp" or .protocol == "udp") |
+      (try (.local_address | capture(":(?<number>[0-9]+)$").number)
+       catch empty) as $number | "\($number)/\(.protocol)"] | unique'
+}
+job_record_ports(){
+  local before="$1" after added
+  after="$(job_current_ports)"
+  added="$(jq -nc --argjson before "$before" --argjson after "$after" '$after - $before')"
+  job_write --argjson ports "$added" '
+    .confirmed_ports = ((.confirmed_ports // []) + $ports | unique)'
+}
+run_step(){
+  local step="$1" ports_before='[]'
+  shift
+  if job_step_success "$step"; then
+    printf 'SKIPPED 已完成步骤：%s\n' "$step"
+    return 0
+  fi
+  current_step="$step"
+  job_update_step "$step" RUNNING ''
+  if [[ "$step" == docker || "$step" == services ]]; then
+    ports_before="$(job_current_ports)"
+  fi
+  "$@"
+  job_record_paths "$step"
+  if [[ "$step" == docker || "$step" == services ]]; then job_record_ports "$ports_before"; fi
+  job_update_step "$step" SUCCESS ''
+  current_step=''
+}
+skip_step(){
+  local step="$1" reason="$2"
+  if job_step_success "$step"; then return 0; fi
+  current_step="$step"
+  job_update_step "$step" SKIPPED "$reason"
+  current_step=''
+}
+job_complete(){
+  local now
+  now="$(date -u +%FT%TZ)"
+  job_write --arg now "$now" '.status="SUCCESS" | .current_stage="complete" |
+    .completed_at=$now'
+}
+load_restored_paths(){
+  if [[ -n "$resume_id" ]]; then
+    mapfile -t restored_config_paths < <(jq -r '.steps.config.restored[]?' "$job_file")
+    mapfile -t restored_compose_paths < <(jq -r '.steps.compose.restored[]?' "$job_file")
+    mapfile -t restored_volume_names < <(jq -r '.steps.volumes.restored[]?' "$job_file")
+    mapfile -t restored_custom_paths < <(jq -r '.steps.files.restored[]?' "$job_file")
+  fi
+}
 
 resolve_conflicts
 confirm_apply
-restore_system_base
-restore_user
-restore_dependencies
-restore_docker_service
-restore_home_config
-restore_compose
-if jq -e '.modules.docker.status == "SUCCESS"' "$manifest" >/dev/null; then
-  restore_volumes
+if [[ -n "$resume_id" ]]; then
+  job_write --arg policy "$conflict_policy" '.options.conflict_policy=$policy'
+  job_update_step preflight SUCCESS ''
+  load_restored_paths
+else
+  job_init
 fi
-restore_databases
-restore_custom_files
-start_supported_services
-verify_restored_files
-verify_databases
+run_step system restore_system_base
+if [[ "$source_user" == root ]]; then skip_step user '来源用户为 root'
+else run_step user restore_user; fi
+run_step dependencies restore_dependencies
+if jq -e '.modules.docker.status == "SUCCESS"' "$manifest" >/dev/null; then
+  run_step docker restore_docker_service
+else skip_step docker '备份不含 Docker 模块'; fi
+if jq -e 'any(.files[]; .path | startswith("home/"))' "$manifest" >/dev/null; then
+  run_step config restore_home_config
+else skip_step config '备份不含用户配置'; fi
+if jq -e 'any(.modules.docker.details.compose_files[]?; .status == "SUCCESS")' "$manifest" >/dev/null; then
+  run_step compose restore_compose
+else skip_step compose '备份不含 Compose 文件'; fi
+if jq -e '.modules.docker.status == "SUCCESS"' "$manifest" >/dev/null; then
+  if jq -e 'any(.modules.docker.details.volumes[]?; .status == "SUCCESS")' "$manifest" >/dev/null; then
+    run_step volumes restore_volumes
+  else skip_step volumes '备份不含 Docker Volume'; fi
+else
+  skip_step volumes '备份不含 Docker 模块'
+fi
+if jq -e '.modules.postgresql.status == "SUCCESS" or .modules.mysql.status == "SUCCESS"' "$manifest" >/dev/null; then
+  run_step database restore_databases
+else skip_step database '备份不含数据库模块'; fi
+if jq -e '(.modules.files.details // [] | length) > 0' "$manifest" >/dev/null; then
+  run_step files restore_custom_files
+else skip_step files '备份不含自定义目录'; fi
+run_step services start_supported_services
+run_step verify verify_restored
+job_complete
 printf '恢复完成。原有数据备份目录：%s\n' "${backup_dir:-无}"
