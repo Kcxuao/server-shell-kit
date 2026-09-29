@@ -3,13 +3,14 @@ set -Eeuo pipefail
 umask 077
 
 usage(){
-  echo '用法：backup.sh config|data|full [--output-dir 绝对目录] [--path 绝对路径] [--postgres-db 名称] [--postgres-source system|docker:容器] [--postgres-user 用户] [--mysql-db 名称] [--mysql-source system|docker:容器] [--mysql-user 用户]' >&2
+  echo '用法：backup.sh config|data|full [--output-dir 绝对目录] [--secrets skip|include|encrypt] [--path 绝对路径] [--postgres-db 名称] [--postgres-source system|docker:容器] [--postgres-user 用户] [--mysql-db 名称] [--mysql-source system|docker:容器] [--mysql-user 用户]' >&2
 }
 [[ $# -ge 1 ]] || { usage; exit 2; }
 mode="$1"
 shift
 case "$mode" in config|data|full) ;; *) usage; exit 2 ;; esac
 output_dir="${HOME:-}"
+secret_policy=ask
 postgres_source=system postgres_user=postgres
 mysql_source=system mysql_user=root
 paths=() postgres_databases=() mysql_databases=()
@@ -17,6 +18,7 @@ while (( $# > 0 )); do
   [[ $# -ge 2 ]] || { usage; exit 2; }
   case "$1" in
     --output-dir) output_dir="$2" ;;
+    --secrets) secret_policy="$2" ;;
     --path) paths+=("$2") ;;
     --postgres-db) postgres_databases+=("$2") ;;
     --postgres-source) postgres_source="$2" ;;
@@ -28,6 +30,7 @@ while (( $# > 0 )); do
   esac
   shift 2
 done
+case "$secret_policy" in ask|skip|include|encrypt) ;; *) usage; exit 2 ;; esac
 [[ "$output_dir" == /* ]] || { echo '备份输出目录必须是绝对路径。' >&2; exit 2; }
 if [[ "$mode" == config ]] && (( ${#paths[@]} + ${#postgres_databases[@]} + ${#mysql_databases[@]} > 0 )); then
   echo 'config 类型不接受数据备份选项。' >&2; exit 2
@@ -38,6 +41,23 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 mkdir -p -- "$output_dir"
 bundle="$(mktemp -d "$output_dir/server-shell-kit-backup-$(date -u +%Y%m%d-%H%M%S)-XXXXXXXX")"
+bundle_complete=0
+cleanup(){
+  if (( bundle_complete == 0 )) && [[ -n "${bundle:-}" && -d "$bundle" ]]; then
+    rm -rf -- "$bundle"
+  fi
+  if [[ -n "${encrypted_partial:-}" && -f "$encrypted_partial" ]]; then
+    rm -f -- "$encrypted_partial"
+  fi
+  if [[ -n "${gpg_home:-}" && -d "$gpg_home" ]]; then
+    GNUPGHOME="$gpg_home" gpgconf --kill gpg-agent >/dev/null 2>&1 || true
+    rm -rf -- "$gpg_home"
+  fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 created_at="$(date -u +%FT%TZ)"
 version="$(git -C "$repo_dir" rev-parse --short HEAD 2>/dev/null || true)"
 [[ -n "$version" ]] || version=unversioned
@@ -61,6 +81,41 @@ else
   rm -f -- "$bundle/snapshot.json"
   set_module snapshot FAILED '环境快照生成失败'
 fi
+
+findings="$(bash "$script_dir/backup-secrets.sh" "$mode" "$bundle/snapshot.json" "${paths[@]}")"
+if [[ -n "$findings" ]]; then
+  printf '发现可能的敏感文件：\n%s\n' "$findings" >&2
+fi
+if [[ "$secret_policy" == ask ]]; then
+  secret_policy=skip
+  if [[ -n "$findings" && -t 0 && -t 2 ]]; then
+    printf '处理方式：[s] 跳过（默认） / [i] 包含 / [e] 加密备份：' >&2
+    IFS= read -r answer
+    case "$answer" in
+      i|I) secret_policy=include ;;
+      e|E) secret_policy=encrypt ;;
+    esac
+  fi
+fi
+if [[ "$secret_policy" == include ]]; then
+  echo '已明确选择包含可能的敏感文件；输出目录仅供授权用户访问。' >&2
+elif [[ "$secret_policy" == encrypt ]]; then
+  command -v gpg >/dev/null 2>&1 || { echo '加密备份需要 GPG。' >&2; exit 1; }
+  [[ -t 0 && -r /dev/tty && -w /dev/tty ]] || {
+    echo '加密备份需要交互式终端输入口令。' >&2; exit 1;
+  }
+  printf '加密备份口令：' > /dev/tty
+  IFS= read -r -s passphrase < /dev/tty
+  printf '\n确认口令：' > /dev/tty
+  IFS= read -r -s confirmation < /dev/tty
+  printf '\n' > /dev/tty
+  [[ -n "$passphrase" && "$passphrase" == "$confirmation" ]] || {
+    unset passphrase confirmation
+    echo '口令为空或两次输入不一致。' >&2; exit 1;
+  }
+  unset confirmation
+fi
+export SERVER_SHELL_KIT_BACKUP_SECRETS="$secret_policy"
 
 if [[ "$mode" == config || "$mode" == full ]]; then
   if SERVER_SHELL_KIT_BACKUP_STRICT=1 bash "$script_dir/backup-config.sh" "$bundle"; then
@@ -132,11 +187,33 @@ done < <(find "$bundle" -type f ! -name manifest.json -print0)
 jq -n --argjson schema_version 1 --arg created_at "$created_at" \
   --arg hostname "$(hostname)" --arg os "${PRETTY_NAME:-unknown}" \
   --arg server_shell_kit_version "$version" --arg type "$mode" \
+  --arg secret_policy "$secret_policy" \
   --argjson modules "$modules" --argjson files "$files" \
   '{schema_version:$schema_version,created_at:$created_at,hostname:$hostname,os:$os,
-    server_shell_kit_version:$server_shell_kit_version,type:$type,modules:$modules,files:$files}' \
+    server_shell_kit_version:$server_shell_kit_version,type:$type,
+    secret_policy:$secret_policy,modules:$modules,files:$files}' \
   > "$bundle/manifest.json"
-printf '备份目录：%s\n' "$bundle"
+if [[ "$secret_policy" == encrypt ]]; then
+  encrypted="$bundle.tar.gz.gpg"
+  encrypted_partial="$encrypted.partial"
+  gpg_home="$(mktemp -d "$output_dir/.server-shell-kit-gpg-XXXXXXXX")"
+  if tar -C "$output_dir" -czf - "$(basename -- "$bundle")" |
+     GNUPGHOME="$gpg_home" gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 \
+       --cipher-algo AES256 --symmetric --output "$encrypted_partial" 3<<< "$passphrase"; then
+    unset passphrase
+    mv -- "$encrypted_partial" "$encrypted"
+    encrypted_partial=''
+    rm -rf -- "$bundle"
+    printf '加密备份文件：%s\n' "$encrypted"
+  else
+    unset passphrase
+    echo '备份加密失败，临时明文目录将清理。' >&2
+    exit 1
+  fi
+else
+  bundle_complete=1
+  printf '备份目录：%s\n' "$bundle"
+fi
 if (( failed )); then exit 1; fi
 if (( successful == 0 )); then
   echo '没有完成任何备份模块。' >&2

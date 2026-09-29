@@ -60,6 +60,7 @@ server-shell-kit/
 │   ├── migrate-config.sh
 │   ├── backup.sh
 │   ├── backup-config.sh
+│   ├── backup-secrets.sh
 │   ├── backup-files.sh
 │   ├── backup-docker.sh
 │   ├── backup-postgresql.sh
@@ -146,11 +147,13 @@ Java 使用 SDKMAN 安装最新稳定 JDK 与 Maven；Python 使用 uv 安装托
 bash scripts/backup.sh config
 bash scripts/backup.sh data --path /opt/app --postgres-db appdb --mysql-db appdb
 bash scripts/backup.sh full --postgres-source docker:pg --postgres-db appdb --mysql-source docker:mysql --mysql-db appdb
+bash scripts/backup.sh full --secrets encrypt --path /opt/app
+gpg --decrypt server-shell-kit-backup-YYYYMMDD-HHMMSS-XXXXXXXX.tar.gz.gpg | tar -tzf -
 ```
 
 数据库默认从系统服务导出；`--postgres-source` 和 `--mysql-source` 可指定 Docker 容器，`--postgres-user`、`--mysql-user` 可指定数据库用户。PostgreSQL 用 `pg_dump` 导出指定数据库，并用 `pg_dumpall --globals-only` 导出全局角色；MySQL/MariaDB 使用 `mysqldump --single-transaction`，适用于事务表。脚本不接收命令行密码，身份验证须由数据库现有配置提供。未指定数据库名时不进行数据库访问；若快照发现该数据库正在运行，则将对应模块记为 `FAILED`。全局角色文件可能包含密码哈希，备份文件应按敏感数据保管。
 
-每次备份均包含 `snapshot.json`、`manifest.json` 和已完成模块的文件。Manifest 记录 `SUCCESS`、`FAILED`、`SKIPPED`，以及文件大小和 SHA-256；单个模块失败不会删除其他模块的结果。备份目录权限为 `0700`，文件权限为 `0600`。配置文件命中基础敏感项检查时会跳过该文件，并在 Manifest 中将配置模块标记为 `FAILED`。Docker 镜像仅保存名称、tag 和 digest 等元数据，不导出镜像层；正在使用或关联数据库容器的 Volume 会跳过并写入 Manifest。Compose 文件仅在可读取且未命中敏感项检查时复制。自定义目录按读取时状态归档，不会冻结运行中的应用。备份当前未加密，请按包含敏感业务数据的文件保管。
+每次备份均包含 `snapshot.json`、`manifest.json` 和已完成模块的文件。Manifest 记录 `SUCCESS`、`FAILED`、`SKIPPED`，以及文件大小和 SHA-256；单个模块失败不会删除其他模块的结果。备份目录权限为 `0700`，文件权限为 `0600`。备份前按文件名和配置键名列出可能的敏感文件；交互终端可选择跳过、包含或加密，非交互环境默认跳过，也可显式传入 `--secrets skip|include|encrypt`。`include` 会将这些文件明文纳入备份，`encrypt` 会要求在终端输入 GPG 口令，生成整包 AES-256 加密文件并清理临时明文目录。SSH 私钥和 `/etc/shadow` 不允许通过自定义目录自动纳入。Docker 镜像仅保存名称、tag 和 digest 等元数据，不导出镜像层；正在使用或关联数据库容器的 Volume 会跳过并写入 Manifest。Compose 文件仅在可读取且未命中敏感项检查时复制。自定义目录按读取时状态归档，不会冻结运行中的应用。未选择加密时，请按包含敏感业务数据的文件保管备份。
 
 [清华 Ubuntu 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/ubuntu/)、[清华 Debian 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/debian/)、[中科大镜像说明](https://mirrors.ustc.edu.cn/help/debian.html)。
 

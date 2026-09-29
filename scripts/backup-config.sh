@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+source "$(dirname -- "${BASH_SOURCE[0]}")/backup-secrets.sh"
 
 user_files=(
   .zshrc .bashrc .gitconfig .vimrc .tmux.conf
@@ -21,8 +22,9 @@ backup_config(){
   for rel in "${user_files[@]}"; do
     source="$TARGET_HOME/$rel"
     [[ -f "$source" && ! -L "$source" ]] || continue
-    if [[ "${SERVER_SHELL_KIT_BACKUP_STRICT:-0}" == 1 ]] &&
-       grep -Eiq 'password|token|secret|api[_-]?key|private[_-]?key|://[^[:space:]]+:[^[:space:]]+@' "$source"; then
+    if [[ "${SERVER_SHELL_KIT_BACKUP_STRICT:-0}" == 1 &&
+          "${SERVER_SHELL_KIT_BACKUP_SECRETS:-skip}" == skip ]] &&
+       backup_secret_config_possible "$source"; then
       printf '配置文件可能包含敏感数据，已跳过：%s\n' "$rel" >&2
       skipped="$(jq -nc --argjson before "$skipped" --arg file "home/$rel" '$before + [$file]')"
       failed=1
@@ -37,8 +39,9 @@ backup_config(){
   done
   for file in "${system_files[@]}"; do
     [[ -f "$file" && ! -L "$file" ]] || continue
-    if [[ "${SERVER_SHELL_KIT_BACKUP_STRICT:-0}" == 1 ]] &&
-       grep -Eiq 'password|token|secret|api[_-]?key|private[_-]?key|://[^[:space:]]+:[^[:space:]]+@' "$file"; then
+    if [[ "${SERVER_SHELL_KIT_BACKUP_STRICT:-0}" == 1 &&
+          "${SERVER_SHELL_KIT_BACKUP_SECRETS:-skip}" == skip ]] &&
+       backup_secret_config_possible "$file"; then
       printf '系统配置可能包含敏感数据，已跳过：%s\n' "$file" >&2
       skipped="$(jq -nc --argjson before "$skipped" --arg file "system${file#/etc}" '$before + [$file]')"
       failed=1

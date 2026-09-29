@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+source "$(dirname -- "${BASH_SOURCE[0]}")/backup-secrets.sh"
 
 [[ $# -ge 2 && "$1" == /* ]] || {
   echo '用法：backup-files.sh 绝对备份目录 绝对源路径 [...]' >&2; exit 2;
@@ -19,7 +20,7 @@ for requested in "$@"; do
     continue
   fi
   case "$source" in
-    /|/var|/var/lib)
+    /|/var|/var/lib|/etc/shadow|/etc/gshadow|*/.ssh/id_rsa|*/.ssh/id_dsa|*/.ssh/id_ecdsa|*/.ssh/id_ed25519)
       printf '源路径范围过大，可能包含数据库数据目录：%s\n' "$requested" >&2
       failed=1
       continue
@@ -39,17 +40,22 @@ for requested in "$@"; do
       continue
       ;;
   esac
-  if ! sensitive="$(find "$source" -xdev -type f \( -name '.env' -o -name '.env.*' \
-      -o -name '*.key' -o -name '*.pem' -o -name 'id_rsa' -o -name 'id_ed25519' \
-      -o -name 'credentials' -o -name 'config.json' -o -name 'PG_VERSION' \
+  if ! sensitive="$(find "$source" -xdev -type f \( -name 'PG_VERSION' \
       -o -name 'ibdata1' -o -name 'aria_log_control' -o -name 'dump.rdb' \
-      -o -name 'appendonly.aof' \) -print -quit 2>/dev/null)"; then
+      -o -name 'appendonly.aof' -o -path '*/.ssh/id_*' -o -path '*/etc/shadow' \
+      -o -path '*/etc/gshadow' \) -print -quit 2>/dev/null)"; then
     printf '无法完整检查目录中的敏感文件：%s\n' "$requested" >&2
     failed=1
     continue
   fi
   if [[ -n "$sensitive" ]]; then
-    printf '发现可能包含敏感数据或数据库目录的文件，已跳过：%s\n' "$requested" >&2
+    printf '发现数据库数据或禁止自动包含的凭据，已跳过：%s\n' "$requested" >&2
+    failed=1
+    continue
+  fi
+  if [[ "${SERVER_SHELL_KIT_BACKUP_SECRETS:-skip}" == skip ]] &&
+     [[ -n "$(backup_secret_tree "$source")" ]]; then
+    printf '发现可能包含敏感数据的文件，已跳过：%s\n' "$requested" >&2
     failed=1
     continue
   fi

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
+source "$(dirname -- "${BASH_SOURCE[0]}")/backup-secrets.sh"
 
 [[ $# == 1 && "$1" == /* ]] || { echo '用法：backup-docker.sh 绝对备份目录' >&2; exit 2; }
 bundle="$1"
@@ -56,14 +57,16 @@ while IFS= read -r volume; do
     elif ! mountpoint="$(docker volume inspect --format '{{.Mountpoint}}' "$volume" 2>/dev/null)" ||
          [[ "$mountpoint" != /* || ! -d "$mountpoint" || -L "$mountpoint" ]]; then
       state=FAILED; reason='Volume 路径不可读取'; failed=1
-    elif ! sensitive="$(find "$mountpoint" -xdev -type f \( -name '.env' -o -name '.env.*' \
-        -o -name '*.key' -o -name '*.pem' -o -name 'id_rsa' -o -name 'id_ed25519' \
-        -o -name 'credentials' -o -name 'config.json' -o -name 'PG_VERSION' \
+    elif ! sensitive="$(find "$mountpoint" -xdev -type f \( -name 'PG_VERSION' \
         -o -name 'ibdata1' -o -name 'aria_log_control' -o -name 'dump.rdb' \
-        -o -name 'appendonly.aof' \) -print -quit 2>/dev/null)"; then
+        -o -name 'appendonly.aof' -o -path '*/.ssh/id_*' -o -path '*/etc/shadow' \
+        -o -path '*/etc/gshadow' \) -print -quit 2>/dev/null)"; then
       state=FAILED; reason='无法完成敏感文件检查'; failed=1
     elif [[ -n "$sensitive" ]]; then
-      state=SKIPPED; reason='发现可能包含敏感数据或数据库目录的文件'
+      state=SKIPPED; reason='发现数据库数据或禁止自动包含的凭据'
+    elif [[ "${SERVER_SHELL_KIT_BACKUP_SECRETS:-skip}" == skip &&
+            -n "$(backup_secret_tree "$mountpoint")" ]]; then
+      state=SKIPPED; reason='发现可能包含敏感数据的文件'
     else
       archive="$bundle/docker/volumes/$(printf '%03d' "$index").tar.gz"
       if tar --one-file-system -czf "$archive" -C "$mountpoint" .; then
@@ -103,7 +106,8 @@ while IFS= read -r id; do
     compose_file_json=null
     if [[ "$path" != /* || ! -f "$path" || -L "$path" || ! -r "$path" ]]; then
       compose_state=SKIPPED; compose_reason='文件不可读取或路径不是普通绝对文件'
-    elif grep -Eiq '(^|[^[:alnum:]_])(environment|env_file|secrets|password|token|api[_-]?key|private[_-]?key)[[:space:]:=]' "$path"; then
+    elif [[ "${SERVER_SHELL_KIT_BACKUP_SECRETS:-skip}" == skip ]] &&
+         grep -Eiq '(^|[^[:alnum:]_])(environment|env_file|secrets|password|token|api[_-]?key|private[_-]?key)[[:space:]:=]' "$path"; then
       compose_state=SKIPPED; compose_reason='文件可能包含敏感配置'
     else
       if (( $? != 1 )); then
